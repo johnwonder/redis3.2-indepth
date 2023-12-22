@@ -404,6 +404,8 @@ long long ustime(void) {
     struct timeval tv;
     long long ust;
 
+     //https://blog.csdn.net/WhereIsHeroFrom/article/details/86501571/
+    //unix 时间戳通过接口 mstime 获取，得到的是从 1970年1月1日早上8点到当前时刻的时间间隔，以毫秒为单位（mstime底层实现用的是 c 的系统函数 gettimeofday）
     gettimeofday(&tv, NULL);
     ust = ((long long)tv.tv_sec)*1000000;
     ust += tv.tv_usec;
@@ -1162,6 +1164,13 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                 server.stat_net_output_bytes);
     }
 
+    /*
+        对于LRU信息，每个对象只有LRU_BITS位。所以我们使用(最终包装)LRU时钟
+
+        请注意，即使计数器 包装也不是什么大问题，
+        一切都会照常工作，但有些对象对Redis来说会显得更年轻。
+        然而，为了实现这一点，给定的对象不应该在计数器包装所需的所有时间内被触摸，这是不可能的
+    */
     /* We have just LRU_BITS bits per object for LRU information.
      * So we use an (eventually wrapping) LRU clock.
      *
@@ -3596,6 +3605,7 @@ int freeMemoryIfNeeded(void) {
         return C_ERR; /* We need to free memory, but policy forbids. */
 
     /* Compute how much memory we need to free. */
+    /*计算 需要释放多少内存 */
     mem_tofree = mem_used - server.maxmemory;
     mem_freed = 0;
     latencyStartMonitor(latency);

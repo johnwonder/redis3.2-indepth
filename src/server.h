@@ -500,6 +500,11 @@ typedef struct redisObject {
     void *ptr;
 } robj;
 
+/*
+获取当前LRU时钟的宏
+如果当前分辨率低于我们刷新LRU时钟的频率
+我们返回预先计算的值，否则我们需要求助于系统调用
+*/
 /* Macro used to obtain the current LRU clock.
  * If the current resolution is lower than the frequency we refresh the
  * LRU clock (as it should be in production servers) we return the

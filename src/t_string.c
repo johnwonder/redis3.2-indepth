@@ -189,6 +189,7 @@ void getCommand(client *c) {
 }
 
 void getsetCommand(client *c) {
+    //获取命令
     if (getGenericCommand(c) == C_ERR) return;
     c->argv[2] = tryObjectEncoding(c->argv[2]);
     //设置新值

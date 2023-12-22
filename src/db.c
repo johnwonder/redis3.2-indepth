@@ -45,10 +45,14 @@ void slotToKeyFlush(void);
  * implementations that should instead rely on lookupKeyRead(),
  * lookupKeyWrite() and lookupKeyReadWithFlags(). */
 robj *lookupKey(redisDb *db, robj *key, int flags) {
+    /*key->ptr代表实际值*/
     dictEntry *de = dictFind(db->dict,key->ptr);
     if (de) {
         robj *val = dictGetVal(de);
 
+        /*https://mp.weixin.qq.com/s?__biz=MzU0OTE4MzYzMw==&mid=2247560043&idx=2&sn=48494925dbd6f19712c346156c4c3559&chksm=fbb06295ccc7eb838638af3646d6aa9918d0fcd5f4a0c95bacb71380f6a3cbe2101596250ba2&scene=27*/
+        /*更新老化算法的访问时间*/
+        /*如果我们有一个保存子节点(rdb,aof)，不要这样做，因为这会触发写时复制的疯狂行为*/
         /* Update the access time for the ageing algorithm.
          * Don't do it if we have a saving child, as this will trigger
          * a copy on write madness. */
@@ -56,6 +60,9 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
             server.aof_child_pid == -1 &&
             !(flags & LOOKUP_NOTOUCH))
         {
+            /*LRU算法广泛应用在诸多系统内，例如Linux内核页表交换，MySQL Buffer Pool缓存页替换，以及Redis数据淘汰策略*/
+            /*The Least Recently Used*/
+            /*成员变量lru字段用于记录了此key最近一次被访问的LRU时钟(server.lruclock)*/
             val->lru = LRU_CLOCK();
         }
         return val;
@@ -67,11 +74,12 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
 /* Lookup a key for read operations, or return NULL if the key is not found
  * in the specified DB.
  *
- * As a side effect of calling this function:
- * 1. A key gets expired if it reached it's TTL.
- * 2. The key last access time is updated.
- * 3. The global keys hits/misses stats are updated (reported in INFO).
+ * As a side effect(副作用) of calling this function:
+ * 1. A key gets expired if it reached it's TTL. //一个键过期 如果达到它的TTL(Time To Live)
+ * 2. The key last access time is updated. //key的最后访问时间会更新
+ * 3. The global keys hits/misses stats are updated (reported in INFO). //全局key hit/miss 会更新
  *
+ * 当我们在获得链接到键的对象后写入键时，不应该使用这个API，而应该只用于只读操作
  * This API should not be used when we write to the key after obtaining
  * the object linked to the key, but only for read only operations.
  *
@@ -80,6 +88,9 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
  *  LOOKUP_NONE (or zero): no special flags are passed.
  *  LOOKUP_NOTOUCH: don't alter the last access time of the key.
  *
+ *  如果键在逻辑上已经过期，这个函数也会返回NULL但仍然存在，以防这是一个slave，因为这个API只被调用表示读操作。即使密钥过期是master-driven的，我们也可以
+ *  正确地报告一个key在slave上过期，即使master是滞后的
+ *  通过复制链接中的DELs使键过期
  * Note: this function also returns NULL is the key is logically expired
  * but still existing, in case this is a slave, since this API is called only
  * for read operations. Even if the key expiry is master-driven, we can
@@ -88,12 +99,25 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
 robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
     robj *val;
 
+    /*当expireIfNeeded返回1的时候代表过期了 */
     if (expireIfNeeded(db,key) == 1) {
+
+        /* 键过期了，如果我们在master的上下文中，expireIfNeeded 只会在key不存在的时候返回0 */
         /* Key expired. If we are in the context of a master, expireIfNeeded()
          * returns 0 only when the key does not exist at all, so it's safe
          * to return NULL ASAP. */
         if (server.masterhost == NULL) return NULL;
 
+        /*
+        然而，如果我们在一个slave的上下文中，expireIfNeeded()将会
+        不是真的尝试过期密钥，它只返回关于密钥的“逻辑”状态信息:
+        键过期取决于主服务器，以便对主服务器的数据集有一个一致的视图
+
+        但是，如果命令调用者不是master，并且作为额外的安全措施，所调用的命令是只读命令，
+        那么我们可以在这里安全地返回NULL，并且以只读方式访问过期值的客户端提供更一致的行为，这将表明键不存在
+
+        值得注意的是，当从服务器用于扩展读操作时，这包括get操作
+        */
         /* However if we are in the context of a slave, expireIfNeeded() will
          * not really try to expire the key, it only returns information
          * about the "logical" status of the key: key expiring is up to the
@@ -861,10 +885,13 @@ void setExpire(redisDb *db, robj *key, long long when) {
 long long getExpire(redisDb *db, robj *key) {
     dictEntry *de;
 
+    /*么有过期的字典 直接返回 */
     /* No expire? return ASAP */
+    /* 第一个字典 + 第二个字典 的used属性 */
     if (dictSize(db->expires) == 0 ||
        (de = dictFind(db->expires,key->ptr)) == NULL) return -1;
 
+    /* 条目在过期字典中找到，说明也应该在主字典中存在(安全检查) */
     /* The entry was found in the expire dict, this means it should also
      * be present in the main dict (safety check). */
     serverAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
@@ -896,15 +923,23 @@ void propagateExpire(redisDb *db, robj *key) {
 }
 
 int expireIfNeeded(redisDb *db, robj *key) {
+
+    //获取过期时间
     mstime_t when = getExpire(db,key);
     mstime_t now;
 
     //没有过期时间 就返回
     if (when < 0) return 0; /* No expire for this key */
 
+    //比如在加载rdb文件的时候
     /* Don't expire anything while loading. It will be done later. */
     if (server.loading) return 0;
 
+    /*
+       如果我们是在lua脚本中，我们声称时间被阻塞到Lua脚本开始的时候。
+       这样，一个键只能在第一次访问时过期，而不会在脚本执行的中间过期，
+       使向slave / AOF的传播保持一致
+    */
     /* If we are in the context of a Lua script, we claim that time is
      * blocked to when the Lua script started. This way a key can expire
      * only the first time it is accessed and not in the middle of the
@@ -912,6 +947,14 @@ int expireIfNeeded(redisDb *db, robj *key) {
      * See issue #1525 on Github for more information. */
     now = server.lua_caller ? server.lua_time_start : mstime();
 
+    /*
+      如果我们运行在slave的上下文中，直接返回
+      slave的key过期是被master控制的，它会为过期键发送给我们DEL 操作
+
+      我们仍然尝试返回正确的信息给调用者，
+      如果我们认为key应该 有效，那么返回0。
+      如果我们认为这个时间key过期了 那么我们返回1
+    */
     /* If we are running in the context of a slave, return ASAP:
      * the slave key expiration is controlled by the master that will
      * send us synthesized DEL operations for expired keys.
@@ -921,14 +964,18 @@ int expireIfNeeded(redisDb *db, robj *key) {
      * we think the key is expired at this time. */
     if (server.masterhost != NULL) return now > when;
 
+    /* 当这个键没有过期时，返回0 */
     /* Return when this key has not expired */
     if (now <= when) return 0;
 
     /* Delete the key */
     server.stat_expiredkeys++;
+    //传播过期
     propagateExpire(db,key);
     notifyKeyspaceEvent(NOTIFY_EXPIRED,
         "expired",key,db->id);
+    
+    //删除
     return dbDelete(db,key);
 }
 

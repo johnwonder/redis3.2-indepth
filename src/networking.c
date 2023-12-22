@@ -705,6 +705,7 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             if (errno != EWOULDBLOCK)
                 serverLog(LL_WARNING,
                     "Accepting client connection: %s", server.neterr);
+           //https://ytcoode.io/article/too-many-open-files-%E9%94%99%E8%AF%AF%E5%AF%BC%E8%87%B4%E6%9C%8D%E5%8A%A1%E5%99%A8%E6%AD%BB%E5%BE%AA%E7%8E%AF/index.html
             return;
         }
         serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
