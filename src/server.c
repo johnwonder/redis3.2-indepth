@@ -407,8 +407,8 @@ long long ustime(void) {
      //https://blog.csdn.net/WhereIsHeroFrom/article/details/86501571/
     //unix 时间戳通过接口 mstime 获取，得到的是从 1970年1月1日早上8点到当前时刻的时间间隔，以毫秒为单位（mstime底层实现用的是 c 的系统函数 gettimeofday）
     gettimeofday(&tv, NULL);
-    ust = ((long long)tv.tv_sec)*1000000;
-    ust += tv.tv_usec;
+    ust = ((long long)tv.tv_sec)*1000000; // tv_sec 秒数 * 1000000 就是微秒数
+    ust += tv.tv_usec; //微秒数
     return ust;
 }
 

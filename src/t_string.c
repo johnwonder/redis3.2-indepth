@@ -112,10 +112,13 @@ void setCommand(client *c) {
     int unit = UNIT_SECONDS; //单位为秒
     int flags = OBJ_SET_NO_FLAGS; //无标记
 
+    //从第四个参数开始
     for (j = 3; j < c->argc; j++) {
         char *a = c->argv[j]->ptr;
         robj *next = (j == c->argc-1) ? NULL : c->argv[j+1];
 
+        //nx 选项
+        //Only set the key if it does not already exist
         if ((a[0] == 'n' || a[0] == 'N') &&
             (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
             !(flags & OBJ_SET_XX))
