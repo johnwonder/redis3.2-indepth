@@ -14,6 +14,8 @@
 
 release_hdr := $(shell sh -c './mkreleasehdr.sh')
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
+#If you’d like a variable to be set to a value only if it’s not already set, 
+#then you can use the shorthand operator ‘?=’ instead of ‘=’. These two settings of the variable ‘FOO’ are identical (see The origin Function):
 OPTIMIZATION?=-O2
 DEPENDENCY_TARGETS=hiredis linenoise lua geohash-int
 
@@ -50,6 +52,8 @@ ifeq ($(USE_JEMALLOC),no)
 	MALLOC=libc
 endif
 
+#https://www.gnu.org/software/make/manual/html_node/Include.html
+#If you want make to simply ignore a makefile which does not exist or cannot be remade, with no error message, use the -include directive instead of include
 # Override default settings if possible
 -include .make-settings
 
@@ -137,6 +141,7 @@ REDIS_CHECK_RDB_NAME=redis-check-rdb
 REDIS_CHECK_AOF_NAME=redis-check-aof
 REDIS_CHECK_AOF_OBJ=redis-check-aof.o
 
+#make的规则是：默认使用第一个不以"."(常用语伪目标)和"%"(常用于模式规则)开头命名的目标作为本条规则编译生成的结果。
 all: $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME)
 	@echo ""
 	@echo "Hint: It's a good idea to run 'make test' ;)"
@@ -152,6 +157,7 @@ dep:
 
 .PHONY: dep
 
+#$(MAKE) 在 Makefile 中表示 make 程序的名称。它可以用于在 make 进程中再次调用 make，以实现递归构建。
 persist-settings: distclean
 	echo STD=$(STD) >> .make-settings
 	echo WARN=$(WARN) >> .make-settings
@@ -165,6 +171,15 @@ persist-settings: distclean
 	echo PREV_FINAL_LDFLAGS=$(FINAL_LDFLAGS) >> .make-settings
 	-(cd ../deps && $(MAKE) $(DEPENDENCY_TARGETS))
 
+#如果需要定义一个伪目标，我们可以直接使用Makefile语法支持的关键字：.PHONY,这个关键词显式地指定一个伪目标。
+
+#它的使用方式是这样的：
+#.PHONY : clean
+#clean:
+#    -rm main
+#这样显式地定义伪目标的好处有两点：
+#如果同时存在一个普通目标clean,非显示定义的伪目标将无法执行，显式定义伪目标可以解决这个问题，在出现同名普通目标时，它将覆盖普通目标得以执行，同时make将输出警告信息。
+#告诉make这就是一个伪目标，不要试图对其做其他处理，这样可以提高编译效率，减少编译时间。
 .PHONY: persist-settings
 
 # Prerequisites target
