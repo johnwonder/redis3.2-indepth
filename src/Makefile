@@ -186,6 +186,7 @@ persist-settings: distclean
 .make-prerequisites:
 	@touch $@
 
+#strip函数 https://blog.csdn.net/qq_39695119/article/details/118892746
 # Clean everything, persist settings and build dependencies if anything changed
 ifneq ($(strip $(PREV_FINAL_CFLAGS)), $(strip $(FINAL_CFLAGS)))
 .make-prerequisites: persist-settings
@@ -230,6 +231,7 @@ clean:
 
 .PHONY: clean
 
+# 一定要执行distclean 不然.make-settings会存在
 distclean: clean
 	-(cd ../deps && $(MAKE) distclean)
 	-(rm -f .make-*)
