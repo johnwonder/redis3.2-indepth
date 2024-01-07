@@ -35,6 +35,10 @@
 #define __xstr(s) __str(s)
 #define __str(s) #s
 
+/*
+https://zhuanlan.zhihu.com/p/361117599?utm_id=0
+对了，C 文件中的 include 语句可以放在任意行，只要保证后面用到的符号在前面即可
+*/
 #if defined(USE_TCMALLOC)
 #define ZMALLOC_LIB ("tcmalloc-" __xstr(TC_VERSION_MAJOR) "." __xstr(TC_VERSION_MINOR))
 #include <google/tcmalloc.h>
