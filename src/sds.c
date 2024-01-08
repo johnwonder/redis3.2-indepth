@@ -44,16 +44,19 @@
 //https://zhuanlan.zhihu.com/p/396423028
 //
 static inline int sdsHdrSize(char type) {
+
+    //位操作的经典比较
+    //SDS_TYPE_MASK 0111
     switch(type&SDS_TYPE_MASK) {
-        case SDS_TYPE_5:
-            return sizeof(struct sdshdr5);
-        case SDS_TYPE_8:
+        case SDS_TYPE_5: //0000
+            return sizeof(struct sdshdr5); 
+        case SDS_TYPE_8: //0001
             return sizeof(struct sdshdr8);
-        case SDS_TYPE_16:
+        case SDS_TYPE_16: //0010
             return sizeof(struct sdshdr16);
-        case SDS_TYPE_32:
+        case SDS_TYPE_32: //0011
             return sizeof(struct sdshdr32);
-        case SDS_TYPE_64:
+        case SDS_TYPE_64: //0100
             return sizeof(struct sdshdr64);
     }
     return 0;
@@ -63,6 +66,8 @@ static inline char sdsReqType(size_t string_size) {
     //100000 = 2的5次方= 32
     //长度小于32 用SDS_TYPE_5
     //sdshdr5 类型最大可以存储长度为 2 ** 5 - 1 的字符串
+
+    // 1<<5 100000 = 2的5次方 - 1
     if (string_size < 1<<5)
         return SDS_TYPE_5;
     if (string_size < 1<<8)
@@ -115,10 +120,14 @@ sds sdsnewlen(const void *init, size_t initlen) {
         case SDS_TYPE_5: {
             //小于32个字节的话5位才能放下
             //flags占1个字节，其低3位（bit）表示type，高5位（bit）表示长度，能表示的长度区间为0～31（2的5次方-1)
+            //flags: 00000 000
+            //SDS_TYPE_BITS 为 3
             *fp = type | (initlen << SDS_TYPE_BITS);
             break;
         }
         case SDS_TYPE_8: {
+            //利用宏定义一个结构体指针
+            //指针指向sdshdr8起始地址
             SDS_HDR_VAR(8,s);
             sh->len = initlen;
             sh->alloc = initlen;

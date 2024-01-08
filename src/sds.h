@@ -108,12 +108,12 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 //5种类型（长度1字节、2字节、4字节、8字节、小于1字节）的SDS至少要用3位来存储类型（2的3次方=8）,
 //1个字节8位，剩余的5位存储长度，可以满足长度小于32的短字符串
 //SDS_TYPE_MASK 7   111
-#define SDS_TYPE_5  0 //小于1字节 
-#define SDS_TYPE_8  1
-#define SDS_TYPE_16 2
-#define SDS_TYPE_32 3
-#define SDS_TYPE_64 4
-#define SDS_TYPE_MASK 7
+#define SDS_TYPE_5  0 //长度 小于1字节 
+#define SDS_TYPE_8  1    //0001
+#define SDS_TYPE_16 2   //0010
+#define SDS_TYPE_32 3  //0011
+#define SDS_TYPE_64 4   //0100
+#define SDS_TYPE_MASK 7 //0111
 #define SDS_TYPE_BITS 3
 #define SDS_HDR_VAR(T,s) struct sdshdr##T *sh = (void*)((s)-(sizeof(struct sdshdr##T)));
 #define SDS_HDR(T,s) ((struct sdshdr##T *)((s)-(sizeof(struct sdshdr##T))))
