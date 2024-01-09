@@ -229,6 +229,8 @@ unsigned char *zipmapSet(unsigned char *zm, unsigned char *key, unsigned int kle
         /* Key found. Is there enough space for the new value? */
         /* Compute the total length: */
         if (update) *update = 1;
+
+        //freelen 为 原来这个key和value 需要的字节数
         freelen = zipmapRawEntryLength(p);
         if (freelen < reqlen) {
             /* Store the offset of this key within the current zipmap, so
@@ -236,10 +238,17 @@ unsigned char *zipmapSet(unsigned char *zm, unsigned char *key, unsigned int kle
              * pair fits at the current position. */
             offset = p-zm;
             zm = zipmapResize(zm, zmlen-freelen+reqlen);
+
+            //重新到key的位置
             p = zm+offset;
 
             /* The +1 in the number of bytes to be moved is caused by the
              * end-of-zipmap byte. Note: the *original* zmlen is used. */
+            /*
+            原型：void *memmove( void* dest, const void* src, size_t count );
+            头文件：<string.h>
+            功能：由src所指内存区域复制count个字节到dest所指内存区域。
+            */
             memmove(p+reqlen, p+freelen, zmlen-(offset+freelen+1));
             zmlen = zmlen-freelen+reqlen;
             freelen = reqlen;
@@ -250,8 +259,10 @@ unsigned char *zipmapSet(unsigned char *zm, unsigned char *key, unsigned int kle
      * be written. If there is too much free space, move the tail
      * of the zipmap a few bytes to the front and shrink the zipmap,
      * as we want zipmaps to be very space efficient. */
+    /* 如果有太多的空闲空间 ,将zipmap的尾部移到前面几个字节，并缩小zipmap */
     empty = freelen-reqlen;
     if (empty >= ZIPMAP_VALUE_MAX_FREE) {
+        /*首先，将尾部<empty>字节移动到前面，然后调整zipmap的大小，使<empty>字节更小*/
         /* First, move the tail <empty> bytes to the front, then resize
          * the zipmap to be <empty> bytes smaller. */
         offset = p-zm;
