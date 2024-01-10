@@ -430,6 +430,8 @@ void keysCommand(client *c) {
     sds pattern = c->argv[1]->ptr;
     int plen = sdslen(pattern), allkeys;
     unsigned long numkeys = 0;
+
+    //生成一个list tail 节点 并且 返回这个节点
     void *replylen = addDeferredMultiBulkLength(c);
 
     di = dictGetSafeIterator(c->db->dict);
@@ -501,6 +503,7 @@ int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor) {
     return C_OK;
 }
 
+/*2.8.0 版本开始*/
 /* This command implements SCAN, HSCAN and SSCAN commands.
  * If object 'o' is passed, then it must be a Hash or Set object, otherwise
  * if 'o' is NULL the command will operate on the dictionary associated with
@@ -514,6 +517,8 @@ int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor) {
  * of every element on the Hash. */
 void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     int i, j;
+
+    //创建一个keys链表
     list *keys = listCreate();
     listNode *node, *nextnode;
     long count = 10;
@@ -529,10 +534,17 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     /* Set i to the first option argument. The previous one is the cursor. */
     i = (o == NULL) ? 2 : 3; /* Skip the key argument if needed. */
 
+    /*第一步: 解析options 选项 */
     /* Step 1: Parse options. */
     while (i < c->argc) {
         j = c->argc - i;
+        //j >=2 当c->argc 3个参数时 j 就小于2了
+        //strcasecmp函数是一个比较函数,用于比较两个不区分大小写的字符串
+        //s1和s2中的所有字母字符在比较之前都转换为小写。
+        //#include<string.h>
         if (!strcasecmp(c->argv[i]->ptr, "count") && j >= 2) {
+
+            //解析count后面的一个参数
             if (getLongFromObjectOrReply(c, c->argv[i+1], &count, NULL)
                 != C_OK)
             {
@@ -544,13 +556,14 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
                 goto cleanup;
             }
 
-            i += 2;
+            i += 2; //递进2个参数
         } else if (!strcasecmp(c->argv[i]->ptr, "match") && j >= 2) {
             pat = c->argv[i+1]->ptr;
             patlen = sdslen(pat);
 
             /* The pattern always matches if it is exactly "*", so it is
              * equivalent to disabling it. */
+            /* 如果只是*的话 就 */
             use_pattern = !(pat[0] == '*' && patlen == 1);
 
             i += 2;
@@ -560,6 +573,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         }
     }
 
+    /*第二步 迭代集合*/
     /* Step 2: Iterate the collection.
      *
      * Note that if the object is encoded with a ziplist, intset, or any other
@@ -626,6 +640,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         serverPanic("Not handled encoding in SCAN.");
     }
 
+    /* 再次筛选 查询到的元素 */
     /* Step 3: Filter elements. */
     node = listFirst(keys);
     while (node) {
@@ -672,6 +687,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         node = nextnode;
     }
 
+    /*回复客户端 */
     /* Step 4: Reply to the client. */
     addReplyMultiBulkLen(c, 2);
     addReplyBulkLongLong(c,cursor);
