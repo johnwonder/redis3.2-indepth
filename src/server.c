@@ -2026,6 +2026,7 @@ void initServer(void) {
     server.repl_good_slaves_count = 0;
     updateCachedTime();
 
+    /* 创建 serverCron 时间事件，这是我们处理后台操作的主要方式 */
     /* Create the serverCron() time event, that's our main way to process
      * background operations. */
     if(aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR) {
