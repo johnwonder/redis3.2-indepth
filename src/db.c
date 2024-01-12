@@ -585,7 +585,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     /* Handle the case of a hash table. */
     ht = NULL;
     if (o == NULL) {
-        ht = c->db->dict;
+        ht = c->db->dict; //数据库
     } else if (o->type == OBJ_SET && o->encoding == OBJ_ENCODING_HT) {
         ht = o->ptr;
     } else if (o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_HT) {
@@ -599,6 +599,10 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
 
     if (ht) {
         void *privdata[2];
+        /*
+        我们将最大迭代次数设置为指定COUNT的10倍，因此，如果哈希表处于病态状态(非常稀疏地填充)，
+        我们可以避免阻塞过多的时间，而代价是不返回或返回很少的元素
+        */
         /* We set the max number of iterations to ten times the specified
          * COUNT, so if the hash table is in a pathological state (very
          * sparsely populated) we avoid to block too much time at the cost
@@ -616,6 +620,8 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
               maxiterations-- &&
               listLength(keys) < (unsigned long)count);
     } else if (o->type == OBJ_SET) {
+
+        /* 因为 o->encoding != OBJ_ENCODING_HT  */
         int pos = 0;
         int64_t ll;
 

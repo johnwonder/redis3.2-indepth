@@ -933,10 +933,13 @@ unsigned long dictScan(dict *d,
             de = de->next;
         }
 
+        /*设置非掩码位，使反向游标递增*/
         /* Set unmasked bits so incrementing the reversed cursor
          * operates on the masked bits */
+        /* ~m0 对二进制数进行按位取反操作时，即将所有的0变成1，所有的1变成0*/
         v |= ~m0;
 
+        /*增加反向 cursor*/
         /* Increment the reverse cursor */
         v = rev(v);
         v++;
