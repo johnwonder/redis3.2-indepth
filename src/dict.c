@@ -924,15 +924,28 @@ unsigned long dictScan(dict *d,
 
     if (!dictIsRehashing(d)) {
         t0 = &(d->ht[0]);
+
+        //其中m0、m1为当前哈希表大小减一，rev是二进制逆序
         m0 = t0->sizemask;
 
         /* Emit entries at cursor */
         de = t0->table[v & m0];
         while (de) {
+            //回调函数
             fn(privdata, de);
             de = de->next;
         }
 
+        /* 
+            size为4，掩码为3，二进制0000 0011，游标为1，二进制0000 0001
+            v|= ~m0,即为0000 0001 | 1111 1100，得到v = 1111 1101
+            逆序后为 v=1011 1111
+            逆序后+1为 v = 1100 0000
+            再次逆序 v = 0000 0011,值为3，遍历1之后的下一个游标为3.
+            ————————————————
+            版权声明：本文为CSDN博主「Eshin_Ye」的原创文章，遵循CC 4.0 BY-SA版权协议，转载请附上原文出处链接及本声明。
+            原文链接：https://blog.csdn.net/qq_22351805/article/details/131398622
+         */
         /*设置非掩码位，使反向游标递增*/
         /* Set unmasked bits so incrementing the reversed cursor
          * operates on the masked bits */
@@ -946,6 +959,17 @@ unsigned long dictScan(dict *d,
         v = rev(v);
 
     } else {
+
+        //https://blog.csdn.net/qq_29750559/article/details/134089253
+        //https://blog.csdn.net/csdnlijingran/article/details/89094683
+        /* 
+         但如果游标返回的不是这四种,例如返回了10,10&11之后变为了2,所以会从2开始继续遍历.但由于size为16时的bucket2已经读取过,并且2,10,6,14都会rehash到size为4的bucket2,所以会造成重复读取
+         size为16时的bucket2。即有重复但不会遗漏
+          总结一下:redis里边rehash从小到大时，scan系列命令不会重复也不会遗漏.而从大到小时,有可能会造成重复但不会遗漏.
+            https://segmentfault.com/a/1190000018218584
+
+            https://blog.csdn.net/ldw201510803006/article/details/124052245
+         */
         t0 = &d->ht[0];
         t1 = &d->ht[1];
 
@@ -959,16 +983,23 @@ unsigned long dictScan(dict *d,
         m1 = t1->sizemask;
 
         /* Emit entries at cursor */
+              /*第一个hash表*/
         de = t0->table[v & m0];
         while (de) {
             fn(privdata, de);
             de = de->next;
         }
 
+        /*
+         https://www.yisu.com/zixun/315450.html
+        https://blog.csdn.net/qq_22351805/article/details/131398622
+         */
         /* Iterate over indices in larger table that are the expansion
          * of the index pointed to by the cursor in the smaller table */
         do {
             /* Emit entries at cursor */
+       
+            /*第二个hash表*/
             de = t1->table[v & m1];
             while (de) {
                 fn(privdata, de);
@@ -981,6 +1012,9 @@ unsigned long dictScan(dict *d,
             v++;
             v = rev(v);
 
+            /* m1=0x111，m0=0x011 */
+            /* m0 ^ m1 = 0x100 */
+            /* 当掩码差所覆盖的位不为零时继续 */
             /* Continue while bits covered by mask difference is non-zero */
         } while (v & (m0 ^ m1));
     }
