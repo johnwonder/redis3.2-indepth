@@ -834,7 +834,7 @@ static unsigned long rev(unsigned long v) {
  * 1) Initially you call the function using a cursor (v) value of 0.
  * 2) The function performs one step of the iteration, and returns the
  *    new cursor value you must use in the next call.
- * 3) When the returned cursor is 0, the iteration is complete.
+ * 3) When the returned cursor is 0, the iteration is complete.当返回的游标为0时，迭代完成
  *
  * The function guarantees all elements present in the
  * dictionary get returned between the start and end of the iteration.
