@@ -819,7 +819,8 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
  * http://graphics.stanford.edu/~seander/bithacks.html#ReverseParallel */
 static unsigned long rev(unsigned long v) {
     unsigned long s = 8 * sizeof(v); // bit size; must be power of 2
-    unsigned long mask = ~0;
+    unsigned long mask = ~0; //-1??
+    //https://blog.csdn.net/m0_64280701/article/details/123064976
     while ((s >>= 1) > 0) {
         mask ^= (mask << s);
         v = ((v >> s) & mask) | ((v << s) & ~mask);
@@ -911,6 +912,7 @@ static unsigned long rev(unsigned long v) {
  * 3) The reverse cursor is somewhat hard to understand at first, but this
  *    comment is supposed to help.
  */
+/* https://www.jianshu.com/p/2f31881bf847 dictScan 讨论 */
 unsigned long dictScan(dict *d,
                        unsigned long v,
                        dictScanFunction *fn,

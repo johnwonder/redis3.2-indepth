@@ -583,6 +583,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
      * cursor to zero to signal the end of the iteration. */
 
     /* Handle the case of a hash table. */
+    /* https://cloud.tencent.com/developer/article/1554983 */
     ht = NULL;
     if (o == NULL) {
         ht = c->db->dict; //数据库
