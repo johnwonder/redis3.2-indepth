@@ -680,7 +680,10 @@ typedef struct zskiplistNode {
     struct zskiplistLevel {
         struct zskiplistNode *forward;
         unsigned int span;
-    } level[];/*。层级 */
+    } level[];
+    /*。为柔性数组。每个节点的数组长度不一样，
+    在生成跳跃表节点时，随机生成一个1～64的值，
+    值越大出现的概率越低。 */
 } zskiplistNode;
 
 /**

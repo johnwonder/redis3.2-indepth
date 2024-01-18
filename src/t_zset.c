@@ -120,6 +120,8 @@ int zslRandomLevel(void) {
     //于ZSKIPLIST_P=0.25，所以相当于0xFFFF右移2位变为0x3FFF，假设random()比较均匀，
     //在进行0xFFFF高16位清零之后，低16位取值就落在0x0000-0xFFFF之间，
     //这样while为真的概率只有1/4，更一般地说为真的概率为1/ZSKIPLIST_P。
+
+    //因为层数默认为1，所以层数为1的概率 为 while为假的概率就是(1-p) 
     while ((random()&0xFFFF) < (ZSKIPLIST_P * 0xFFFF))
         level += 1;
     return (level<ZSKIPLIST_MAXLEVEL) ? level : ZSKIPLIST_MAXLEVEL;
@@ -162,6 +164,20 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj) {
      * happen since the caller of zslInsert() should test in the hash table
      * if the element is already inside or not. */
     level = zslRandomLevel();
+    //插入节点的高度是随机的，假设要插入节点的高度为3，
+    //大于跳跃表的高度2，所以我们需要调整跳跃表的高度。代码如下。
+
+    /* 
+        此时，i的值为2，level的值为3，所以只能进入一次for循环。
+        由于header的第0层到第1层的forward都已经指向了相应的节点，
+        而新添加的节点的高度大于跳跃表的原高度，所以第2层只需要更新header节点即可。
+        前面我们介绍过，rank是用来更新span的变量，其值是头节点到update[i]所经过的节点数，
+        而此次修改的是头节点，所以rank[2]为0，update[2]一定为头节点。
+        update[2]->level[2].span的值先赋值为跳跃表的总长度，
+        后续在计算新插入节点level[2]的span时会用到此值。
+        在更新完新插入节点level[2]的span之后会对update[2]->level[2].span的值进行重新计算赋值
+    
+    */
     if (level > zsl->level) {
         for (i = zsl->level; i < level; i++) {
             rank[i] = 0;
@@ -187,6 +203,11 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj) {
         update[i]->level[i].span = (rank[0] - rank[i]) + 1;
     }
 
+    /*
+        如果新插入节点的高度小于原跳跃表高度，
+        则从level到zsl->level-1层的update[i]节点forward不会指向新插入的节点，
+        所以不用更新update[i]的forward指针
+    */
     /* increment span for untouched levels */
     for (i = level; i < zsl->level; i++) {
         update[i]->level[i].span++;
