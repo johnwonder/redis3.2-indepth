@@ -40,6 +40,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
  * an integer-encodable value, an intset will be returned. Otherwise a regular
  * hash table. */
 robj *setTypeCreate(robj *value) {
+    //判断是否能转换为数字
     if (isObjectRepresentableAsLongLong(value,NULL) == C_OK)
         return createIntsetObject();
     return createSetObject();
@@ -281,6 +282,7 @@ void saddCommand(client *c) {
 
     set = lookupKeyWrite(c->db,c->argv[1]);
     if (set == NULL) {
+        //判断设置的值是否能转换为数字
         set = setTypeCreate(c->argv[2]);
         //放入数据库
         dbAdd(c->db,c->argv[1],set);
@@ -291,6 +293,7 @@ void saddCommand(client *c) {
         }
     }
 
+    //从第三个参数开始 值
     for (j = 2; j < c->argc; j++) {
         c->argv[j] = tryObjectEncoding(c->argv[j]);
         if (setTypeAdd(set,c->argv[j])) added++;

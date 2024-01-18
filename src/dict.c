@@ -817,6 +817,8 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
 
 /* Function to reverse bits. Algorithm from:
  * http://graphics.stanford.edu/~seander/bithacks.html#ReverseParallel */
+ /*https://www.cnblogs.com/gqtcgq/p/7247077.html*/
+ /* https://blog.csdn.net/m0_64280701/article/details/123064976 */
 static unsigned long rev(unsigned long v) {
     unsigned long s = 8 * sizeof(v); // bit size; must be power of 2
     unsigned long mask = ~0; //-1??
