@@ -519,7 +519,19 @@ int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
         int cmp;
 
         minlen = (alen < blen) ? alen : blen;
+        /* 
+        该函数是按字节比较的。
+        例如：
+        s1,s2为字符串时候memcmp(s1,s2,1)就是比较s1和s2的第一个字节的ascII码值；
+        memcmp(s1,s2,n)就是比较s1和s2的前n个字节的ascII码值
+        如:char *s1="abc";
+        char *s2="acd";
+        int r=memcmp(s1,s2,3);
+        就是比较s1和s2的前3个字节，第一个字节相等，第二个字节比较中大小已经确定，不必继续比较第三字节了。所以r=-1
+         */
+        /* 如果返回值 < 0，则表示 astr 小于 bstr */
         cmp = memcmp(astr,bstr,minlen);
+        //比较相等的情况下 再比较长度
         if (cmp == 0) return alen-blen;
         return cmp;
     }

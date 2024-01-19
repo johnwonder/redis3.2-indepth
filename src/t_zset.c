@@ -128,7 +128,7 @@ int zslRandomLevel(void) {
 }
 
 zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj) {
-    //// 存储搜索路径
+    //// 存储搜索路径节点
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
     // 存储经过的节点跨度
     unsigned int rank[ZSKIPLIST_MAXLEVEL];
@@ -137,6 +137,7 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj) {
     serverAssert(!isnan(score));
     x = zsl->header;
     // 逐步降级寻找目标节点，得到「搜索路径」
+    /* http://zhangtielei.com/posts/blog-redis-skiplist.html 好文章 */
     for (i = zsl->level-1; i >= 0; i--) {
         /* store rank that is crossed to reach the insert position */
         //存储到达插入点的跨度
@@ -147,11 +148,16 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj) {
             (x->level[i].forward->score < score ||
                 (x->level[i].forward->score == score &&
                 compareStringObjects(x->level[i].forward->obj,obj) < 0))) {
-            rank[i] += x->level[i].span;//继续增加跨度
+            rank[i] += x->level[i].span;//把x节点当前层的跨度 加到rank上
             x = x->level[i].forward;
         }
         update[i] = x;
     }
+
+    //rank[3] = 0;
+    
+
+
     /*
      https://mp.weixin.qq.com/s/mR6Bs_TZ56jf8HxpReOkgg
      创建节点的时候，就会随机好节点的高度。例如默认是第一层，
@@ -199,7 +205,7 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj) {
         //更新当前插入节点的跨度
         /* update span covered by update[i] as x is inserted here */
         x->level[i].span = update[i]->level[i].span - (rank[0] - rank[i]);
-        //搜索路径的跨度加大
+        //原来搜索路径的跨度加大
         update[i]->level[i].span = (rank[0] - rank[i]) + 1;
     }
 
@@ -209,6 +215,7 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj) {
         所以不用更新update[i]的forward指针
     */
     /* increment span for untouched levels */
+    /* level小于 zsl->level的时候会触发 */
     for (i = level; i < zsl->level; i++) {
         update[i]->level[i].span++;
     }

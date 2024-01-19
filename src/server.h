@@ -674,13 +674,28 @@ struct sharedObjectsStruct {
 
 /* ZSETs use a specialized version of Skiplists */
 typedef struct zskiplistNode {
+   /* 7。0改为 sds ele : 一个简单动态字符串，存储着对应的成员，成员是唯一的 */
     robj *obj;
+     /* score: 节点的分值（成员的权重），用于实现排序，当 score 相同会用 ele 排序，整体是升序的 */
     double score;
+    /* backward: 指向后向节点的指针，用于访问表头方向的后继节点（节点的前一个节点）也就是节点的前驱节点，可以实现从表尾向表头遍历。
+    一个节点只有第一层会有前驱节点指针，因此跳表中第一层链表是一个双向链表 */
     struct zskiplistNode *backward;
+    /* level：层级数组，跳表是一个多层的链表，每一层是由多个节点通过指针连接起来的。
+    每个元素代表跳表的一层，也就是用 zskiplistLevel 结构体表示，
+    比如说 level[0] 就表示第一层，以此类推。每一层都带有两个属性：指向前驱节点的指针和跨度，
+    每次生成一个跳表节点，都会根据随机来确定该节点会有几层 */
     struct zskiplistLevel {
+        /*   forward：指向前向节点的指针，用于访问表尾方向的前驱节点（节点的后一个节点），也就是节点的后驱节点，可以实现从表头向表尾遍历 */
         struct zskiplistNode *forward;
+        /*   
+        span：跨度记录了当前节点和前驱节点之间跨越的距离（跳了几个节点），可以在遍历查找的过程中算出元素在跳表里具体的位置，用来计算排名 rank，
+        计算节点索引值。遍历查找的过程中将访问过的跨度累加起来，就能得到节点在跳表中的 rank 
+        */
         unsigned int span;
     } level[];
+    /* level 数组的设计，利用 C 指针数组的特性，从内存和效率来说都是很优秀的，对比 JDK 的 ConcurrentSkipListMap（里面用了大量的引用和 new 操作），指针数组的优势就很大了 */
+
     /*。为柔性数组。每个节点的数组长度不一样，
     在生成跳跃表节点时，随机生成一个1～64的值，
     值越大出现的概率越低。 */
@@ -690,14 +705,20 @@ typedef struct zskiplistNode {
  * 跳跃表
 */
 typedef struct zskiplist {
+    /* header 指向跳表的表头节点，默认会初始化为最高层，有 32 或者 64 层（源码变更了好几次，目前 7.0 是固定最高 32 层），不作为实际跳表元素节点，是一个类似哑节点的角色 */
+    /* tail：指向跳表的表尾节点，是实打实的一个数据节点 */
     struct zskiplistNode *header, *tail;
+    /* length：记录跳表的长度，即跳表数据节点数量（不包含表头节点） */
     unsigned long length;
+    /* level：整个跳表的层级，指的是目前跳表中，层数最高的那个数据节点的层级（表头节点不参与计算层级）。
+    层数一般不高，遍历的时候从最上面往下遍历会有点浪费，
+    所以这边会直接记录 level 跳表的最高层级，遍历的时候就从这个 level 开始遍历。 */
     int level;
 } zskiplist;
 
 typedef struct zset {
-    dict *dict;
-    zskiplist *zsl;
+    dict *dict;/* 字典，用于存储 value 和 score 的映射关系，查询 O(1) */
+    zskiplist *zsl;/* 真正的跳表 zset skip list */
 } zset;
 
 typedef struct clientBufferLimitsConfig {
