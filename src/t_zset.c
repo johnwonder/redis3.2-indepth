@@ -272,7 +272,7 @@ int zslDelete(zskiplist *zsl, double score, robj *obj) {
     }
     /**
      * 找到相同分数且相同对象的
-     * 
+     * 我们可能有多个相同分数的元素，这是我们需要的是找到具有正确分数和对象的元素
      */
     /* We may have multiple elements with the same score, what we need
      * is to find the element with both the right score and object. */

@@ -237,6 +237,7 @@ int anetResolveIP(char *err, char *host, char *ipbuf, size_t ipbuf_len) {
 
 static int anetSetReuseAddr(char *err, int fd) {
     int yes = 1;
+    /*确保连接密集型的东西，比如redis基准，能够无数次地关闭/打开套接字*/
     /* Make sure connection-intensive things like the redis benckmark
      * will be able to close/open sockets a zillion of times */
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) == -1) {
@@ -442,6 +443,7 @@ static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len, int 
         return ANET_ERR;
     }
 
+    /* 1.3.6 这边的backlog直接为511*/
     if (listen(s, backlog) == -1) {
         anetSetError(err, "listen: %s", strerror(errno));
         close(s);
@@ -467,6 +469,8 @@ static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backl
     struct addrinfo hints, *servinfo, *p;
 
     snprintf(_port,6,"%d",port);
+
+    /*hints 提示*/
     memset(&hints,0,sizeof(hints));
     hints.ai_family = af;
     hints.ai_socktype = SOCK_STREAM;
@@ -479,6 +483,7 @@ static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backl
         anetSetError(err, "%s", gai_strerror(rv));
         return ANET_ERR;
     }
+    /*1.3.6 直接 使用  socket(AF_INET, SOCK_STREAM, 0)*/
     for (p = servinfo; p != NULL; p = p->ai_next) {
         if ((s = socket(p->ai_family,p->ai_socktype,p->ai_protocol)) == -1)
             continue;
@@ -486,6 +491,7 @@ static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backl
         if (af == AF_INET6 && anetV6Only(err,s) == ANET_ERR) goto error;
         if (anetSetReuseAddr(err,s) == ANET_ERR) goto error;
         //bind and listen
+        /*绑定和监听*/
         if (anetListen(err,s,p->ai_addr,p->ai_addrlen,backlog) == ANET_ERR) goto error;
         goto end;
     }
@@ -504,11 +510,13 @@ end:
 
 int anetTcpServer(char *err, int port, char *bindaddr, int backlog)
 {
+    /*AF_INET（IPV4互联网协议簇）*/
     return _anetTcpServer(err, port, bindaddr, AF_INET, backlog);
 }
 
 int anetTcp6Server(char *err, int port, char *bindaddr, int backlog)
 {
+    /*AF_INET6（IPV6互联网协议簇)*/
     return _anetTcpServer(err, port, bindaddr, AF_INET6, backlog);
 }
 
