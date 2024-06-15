@@ -2787,6 +2787,7 @@ void authCommand(client *c) {
  * in Pub/Sub mode. */
 void pingCommand(client *c) {
     /* The command takes zero or one arguments. */
+    /*最多两个参数*/
     if (c->argc > 2) {
         addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
             c->cmd->name);
@@ -2794,6 +2795,7 @@ void pingCommand(client *c) {
     }
 
     if (c->flags & CLIENT_PUBSUB) {
+        /*说明是两个参数*/
         addReply(c,shared.mbulkhdr[2]);
         addReplyBulkCBuffer(c,"pong",4);
         if (c->argc == 1)
@@ -2809,6 +2811,7 @@ void pingCommand(client *c) {
 }
 
 void echoCommand(client *c) {
+    /*跟1.3.6一样 直接返回第一个参数*/
     addReplyBulk(c,c->argv[1]);
 }
 

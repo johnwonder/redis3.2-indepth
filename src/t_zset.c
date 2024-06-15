@@ -140,7 +140,9 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj) {
     /* http://zhangtielei.com/posts/blog-redis-skiplist.html 好文章 */
     for (i = zsl->level-1; i >= 0; i--) {
         /* store rank that is crossed to reach the insert position */
+        /*存储 交叉到达插入位置的 rank(等级 ; 地位，级别 ; 排 ; 队列) */
         //存储到达插入点的跨度
+        //最高层为0
         rank[i] = i == (zsl->level-1) ? 0 : rank[i+1];
         // 如果 score 相等，还需要比较 value
         //如果当前level的forward的score比要插入的score小 那么继续往前
