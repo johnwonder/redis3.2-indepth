@@ -496,5 +496,7 @@ void strlenCommand(client *c) {
     robj *o;
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_STRING)) return;
+
+    //有对数字的计算
     addReplyLongLong(c,stringObjectLen(o));
 }

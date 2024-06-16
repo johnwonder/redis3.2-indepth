@@ -257,7 +257,7 @@ uint32_t sdigits10(int64_t v) {
         /* Abs value of LLONG_MIN requires special handling. */
         uint64_t uv = (v != LLONG_MIN) ?
                       (uint64_t)-v : ((uint64_t) LLONG_MAX)+1;
-        return digits10(uv)+1; /* +1 for the minus. */
+        return digits10(uv)+1; /* +1 for the minus(负号). */
     } else {
         return digits10(v);
     }
