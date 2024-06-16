@@ -39,6 +39,7 @@
 robj *createObject(int type, void *ptr) {
     robj *o = zmalloc(sizeof(*o));
     o->type = type;
+    /*默认是RAW*/
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
     o->refcount = 1;
@@ -393,6 +394,7 @@ robj *tryObjectEncoding(robj *o) {
     /* 对共享对象进行编码是不安全的：共享对象可以在Redis的“对象空间”中随处共享，并可能在他们没有被处理时结束。
         我们仅将其作为键空间中的值处理 
      */
+    /*o->refcount > 1 说明已经是共享对象了 共享对象就不再编码了*/
     /* It's not safe to encode shared objects: shared objects can be shared
      * everywhere in the "object space" of Redis and may end in places where
      * they are not handled. We handle them only as values in the keyspace. */
@@ -433,7 +435,7 @@ robj *tryObjectEncoding(robj *o) {
      * in the same chunk of memory to save space and cache misses. */
     if (len <= OBJ_ENCODING_EMBSTR_SIZE_LIMIT) {
         robj *emb;
-
+        //已经是embstr了 就直接返回
         if (o->encoding == OBJ_ENCODING_EMBSTR) return o;
         emb = createEmbeddedStringObject(s,sdslen(s));
         decrRefCount(o);

@@ -1,3 +1,3 @@
-#define REDIS_GIT_SHA1 "00000000"
-#define REDIS_GIT_DIRTY "       0"
-#define REDIS_BUILD_ID "zhangjiongdeMacBook-Pro.local-1654951198"
+#define REDIS_GIT_SHA1 "698c94b3"
+#define REDIS_GIT_DIRTY "      81"
+#define REDIS_BUILD_ID "zhangjiongdeMacBook-Pro.local-1718525482"

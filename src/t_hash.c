@@ -492,6 +492,7 @@ void hsetCommand(client *c) {
     int update;
     robj *o;
 
+    /*没有找到或者创建成功这个key 就返回*/
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
     hashTypeTryConversion(o,c->argv,2,3);
     hashTypeTryObjectEncoding(o,&c->argv[2], &c->argv[3]);

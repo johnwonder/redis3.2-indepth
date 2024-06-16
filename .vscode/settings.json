@@ -24,6 +24,7 @@
         "ctime": "c",
         "cwchar": "c",
         "memory": "c",
-        "type_traits": "c"
+        "type_traits": "c",
+        "locale.h": "c"
     }
 }
