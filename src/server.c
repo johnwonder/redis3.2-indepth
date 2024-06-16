@@ -1009,6 +1009,7 @@ int clientsCronResizeQueryBuffer(client *c) {
             c->querybuf = sdsRemoveFreeSpace(c->querybuf);
         }
     }
+    /*再次重置峰值以捕获下一个周期中的峰值内存使用情况*/
     /* Reset the peak again to capture the peak memory usage in the next
      * cycle. */
     c->querybuf_peak = 0;
@@ -1474,6 +1475,7 @@ void createSharedObjects(void) {
     shared.colon = createObject(OBJ_STRING,sdsnew(":"));
     shared.plus = createObject(OBJ_STRING,sdsnew("+"));
 
+    /*PROTO_SHARED_SELECT_CMDS = 10*/
     for (j = 0; j < PROTO_SHARED_SELECT_CMDS; j++) {
         char dictid_str[64];
         int dictid_len;
@@ -1483,6 +1485,7 @@ void createSharedObjects(void) {
             sdscatprintf(sdsempty(),
                 "*2\r\n$6\r\nSELECT\r\n$%d\r\n%s\r\n",
                 dictid_len, dictid_str));
+                /*根据redis协议来的 */
     }
     shared.messagebulk = createStringObject("$7\r\nmessage\r\n",13);
     shared.pmessagebulk = createStringObject("$8\r\npmessage\r\n",14);
@@ -2036,6 +2039,7 @@ void initServer(void) {
 
     /* Create an event handler for accepting new connections in TCP and Unix
      * domain sockets. */
+    /* ipfd_count 由上面的 istenToPort 函数返回 */
     for (j = 0; j < server.ipfd_count; j++) {
         if (aeCreateFileEvent(server.el, server.ipfd[j], AE_READABLE,
             acceptTcpHandler,NULL) == AE_ERR)
@@ -2783,6 +2787,7 @@ void authCommand(client *c) {
  * in Pub/Sub mode. */
 void pingCommand(client *c) {
     /* The command takes zero or one arguments. */
+    /*最多两个参数*/
     if (c->argc > 2) {
         addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
             c->cmd->name);
@@ -2790,6 +2795,7 @@ void pingCommand(client *c) {
     }
 
     if (c->flags & CLIENT_PUBSUB) {
+        /*说明是两个参数*/
         addReply(c,shared.mbulkhdr[2]);
         addReplyBulkCBuffer(c,"pong",4);
         if (c->argc == 1)
@@ -2805,6 +2811,7 @@ void pingCommand(client *c) {
 }
 
 void echoCommand(client *c) {
+    /*跟1.3.6一样 直接返回第一个参数*/
     addReplyBulk(c,c->argv[1]);
 }
 

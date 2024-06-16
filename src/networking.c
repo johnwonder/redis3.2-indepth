@@ -699,6 +699,7 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(mask);
     UNUSED(privdata);
 
+    /* 1.3.6 是while(1)*/
     while(max--) {
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
         if (cfd == ANET_ERR) {
@@ -1217,6 +1218,9 @@ int processMultibulkBuffer(client *c) {
     while(c->multibulklen) {
         /* Read bulk length if unknown */
         if (c->bulklen == -1) {
+            /*strchr函数功能为在一个串中查找给定字符的第一个匹配之处。
+            函数原型为：char *strchr(const char *str, int c)，
+            即在参数 str 所指向的字符串中搜索第一次出现字符 c（一个无符号字符）的位置*/
             newline = strchr(c->querybuf+pos,'\r');
             if (newline == NULL) {
                 if (sdslen(c->querybuf) > PROTO_INLINE_MAX_SIZE) {
@@ -1241,6 +1245,7 @@ int processMultibulkBuffer(client *c) {
             }
 
             //长度的字符串转换为数字
+            //+1 代表去掉$
             ok = string2ll(c->querybuf+pos+1,newline-(c->querybuf+pos+1),&ll);
             //3.2还是有512mb的限制
             //https://ask.csdn.net/questions/7198670
@@ -1252,6 +1257,8 @@ int processMultibulkBuffer(client *c) {
                 return C_ERR;
             }
 
+            /*比如 *2\r\n$6\r\nSELECT\r\n$1\r\n0\r\n */
+            /*这里pos就到达  SELECT 这里*/
             pos += newline-(c->querybuf+pos)+2;
             //PROTO_MBULK_BIG_ARG = 1024*32
             if (ll >= PROTO_MBULK_BIG_ARG) {
@@ -1269,6 +1276,7 @@ int processMultibulkBuffer(client *c) {
                  * boundary so that we can optimize object creation
                  * avoiding a large copy of data. */
                 //c->querybuf 变为实际参数字符串
+                /* 从pos截取整个字符串 */
                 sdsrange(c->querybuf,pos,-1);
                 pos = 0;
                 qblen = sdslen(c->querybuf);
@@ -1378,12 +1386,20 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(mask);
 
     readlen = PROTO_IOBUF_LEN;
+    /*
+    如果这是一个多批量请求，并且我们正在处理一个足够大的批量回复
+    尽量使查询缓冲区恰好包含表示对象的SDS字符串的概率最大化
+    即使冒着需要更多read(2)调用的风险
+    这样processMultiBulkBuffer()函数可以避免复制缓冲区来创建代表参数的Redis对象
+    */
     /* If this is a multi bulk request, and we are processing a bulk reply
      * that is large enough, try to maximize the probability that the query
      * buffer contains exactly the SDS string representing the object, even
      * at the risk of requiring more read(2) calls. This way the function
      * processMultiBulkBuffer() can avoid copying buffers to create the
      * Redis Object representing the argument. */
+
+    /* PROTO_REQ_MULTIBULK 是在有*号的时候 */
     if (c->reqtype == PROTO_REQ_MULTIBULK && c->multibulklen && c->bulklen != -1
         && c->bulklen >= PROTO_MBULK_BIG_ARG)
     {
@@ -1396,6 +1412,8 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
     //扩大字符数组以容纳读取的长度
     c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
+    /*读取*/
+    /* c->querybuf+qblen 代表 移动到 c->querybuf+qblen 这个位置 */
     nread = read(fd, c->querybuf+qblen, readlen);
     if (nread == -1) {
         if (errno == EAGAIN) {
@@ -1410,7 +1428,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         freeClient(c);
         return;
     }
-
+    /*长度增加*/
     sdsIncrLen(c->querybuf,nread);
     c->lastinteraction = server.unixtime;
     //todo 如果当前client是master 那么偏移量增加

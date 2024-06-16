@@ -83,7 +83,7 @@ buf 数组并没有指定数组长度，它是 C99 规范定义的柔性数组�
 struct __attribute__ ((__packed__)) sdshdr8 {
     uint8_t len; /* used  已使用长度，用1字节存储 */ 
     uint8_t alloc; /* excluding the header and null terminator 总长度  */
-    unsigned char flags; /*  低3位存储类型，高5位预留 3 lsb of type, 5 unused bits */
+    unsigned char flags; /*  低3位存储类型，高5位预留 3 lsb（Least Significant Bit） of type, 5 unused bits */
     char buf[];
 };
 struct __attribute__ ((__packed__)) sdshdr16 {
