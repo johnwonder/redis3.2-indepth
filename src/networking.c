@@ -241,12 +241,14 @@ void _addReplyObjectToList(client *c, robj *o) {
 
     if (listLength(c->reply) == 0) {
         incrRefCount(o);
+        /*添加到tail节点*/
         listAddNodeTail(c->reply,o);
         c->reply_bytes += getStringObjectSdsUsedMemory(o);
     } else {
         tail = listNodeValue(listLast(c->reply));
 
         /* Append to this object when possible. */
+        /*PROTO_REPLY_CHUNK_BYTES = 16 kb  16*1024个字节*/
         if (tail->ptr != NULL &&
             tail->encoding == OBJ_ENCODING_RAW &&
             sdslen(tail->ptr)+sdslen(o->ptr) <= PROTO_REPLY_CHUNK_BYTES)
@@ -333,6 +335,10 @@ void _addReplyStringToList(client *c, const char *s, size_t len) {
  * The following functions are the ones that commands implementations will call.
  * -------------------------------------------------------------------------- */
 
+/*
+用于在客户机输出缓冲区上对数据进行排队的高级函数
+以下函数是命令实现将调用的函数
+*/
 void addReply(client *c, robj *obj) {
     if (prepareClientToWrite(c) != C_OK) return;
 
@@ -441,6 +447,7 @@ void *addDeferredMultiBulkLength(client *c) {
      * ready to be sent, since we are sure that before returning to the
      * event loop setDeferredMultiBulkLength() will be called. */
     if (prepareClientToWrite(c) != C_OK) return NULL;
+    /*加入到链表最后*/
     listAddNodeTail(c->reply,createObject(OBJ_STRING,NULL));
     return listLast(c->reply);
 }
@@ -457,6 +464,7 @@ void setDeferredMultiBulkLength(client *c, void *node, long length) {
     len->ptr = sdscatprintf(sdsempty(),"*%ld\r\n",length);
     len->encoding = OBJ_ENCODING_RAW; /* in case it was an EMBSTR. */
     c->reply_bytes += sdsZmallocSize(len->ptr);
+    /*如果当前节点还有下个元素 那么就一起*/
     if (ln->next != NULL) {
         next = listNodeValue(ln->next);
 
