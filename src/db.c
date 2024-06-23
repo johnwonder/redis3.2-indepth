@@ -442,6 +442,7 @@ void keysCommand(client *c) {
 
         if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
             keyobj = createStringObject(key,sdslen(key));
+            /*如果当前key不过期*/
             if (expireIfNeeded(c->db,keyobj) == 0) {
                 addReplyBulk(c,keyobj);
                 numkeys++;
@@ -831,6 +832,7 @@ void moveCommand(client *c) {
     int srcid;
     long long dbid, expire;
 
+    /*move 在集群模式下不允许*/
     if (server.cluster_enabled) {
         addReplyError(c,"MOVE is not allowed in cluster mode");
         return;
@@ -870,6 +872,7 @@ void moveCommand(client *c) {
         addReply(c,shared.czero);
         return;
     }
+    //在dst数据库中添加键和值
     dbAdd(dst,c->argv[1],o);
     if (expire != -1) setExpire(dst,c->argv[1],expire);
     incrRefCount(o);
