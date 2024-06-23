@@ -138,6 +138,7 @@ void execCommand(client *c) {
 
     /* Exec all the queued commands */
     unwatchAllKeys(c); /* Unwatch ASAP otherwise we'll waste CPU cycles */
+    /*先用orig 指针指向*/
     orig_argv = c->argv;
     orig_argc = c->argc;
     orig_cmd = c->cmd;
