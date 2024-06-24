@@ -96,6 +96,19 @@ int anetKeepAlive(char *err, int fd, int interval)
 {
     int val = 1;
 
+    /*
+    https://blog.csdn.net/m0_46376834/article/details/132029583
+    当 SO_KEEPALIVE 被设置为非零值时，表示启用 keepalive 机制。
+    keepalive 是一种用于检测连接是否仍然有效的机制。通过定期发送一些特定的探测数据，可以检测到网络连接的异常中断或对端应用程序的崩溃退出。
+
+    保活包（Keepalive Packet）是在网络通信中使用的一种特殊类型的数据包，用于检测连接是否仍然有效。它通过定期发送一些特定的探测数据来维持连接的活跃状态。
+
+    保活包通常用于长时间闲置的连接或需要保持持久连接的场景，如 TCP 连接。在TCP keepalive 机制中，保活包被用于检测连接的状态，以便及时发现连接断开或对端应用程序异常退出等情况。
+
+    保活包的具体设置和发送间隔可以通过设置相关的套接字选项来进行配置。这些选项包括 SO_KEEPALIVE、TCP_KEEPIDLE 和 TCP_KEEPINTVL 等。通常，首先启用 SO_KEEPALIVE 套接字选项，然后设置空闲时间阈值 (TCP_KEEPIDLE) 和探测报文发送间隔 (TCP_KEEPINTVL)。
+
+    当启用了保活包机制后，在连接空闲一段时间后（达到 TCP_KEEPIDLE 设置的阈值），将开始发送保活包。如果在一定时间内没有收到对端的响应，就认为连接已经失效，并进行相应的处理，如关闭连接或重新建立连接等。
+    */
     if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &val, sizeof(val)) == -1)
     {
         anetSetError(err, "setsockopt SO_KEEPALIVE: %s", strerror(errno));

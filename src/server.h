@@ -815,6 +815,7 @@ struct redisServer {
     time_t loading_start_time;
     off_t loading_process_events_interval_bytes;
     /* Fast pointers to often looked up command */
+    /*快速指针 指向经常查找的命令 */
     struct redisCommand *delCommand, *multiCommand, *lpushCommand, *lpopCommand,
                         *rpopCommand, *sremCommand, *execCommand, *expireCommand,
                         *pexpireCommand;

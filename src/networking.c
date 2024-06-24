@@ -71,6 +71,7 @@ client *createClient(int fd) {
     if (fd != -1) {
         anetNonBlock(NULL,fd);
         anetEnableTcpNoDelay(NULL,fd);
+        /*启用keepalive*/
         if (server.tcpkeepalive)
             anetKeepAlive(NULL,fd,server.tcpkeepalive);
         //创建一个读事件

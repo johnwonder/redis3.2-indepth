@@ -1529,7 +1529,9 @@ void initServerConfig(void) {
     server.runid[CONFIG_RUN_ID_SIZE] = '\0';
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
     server.port = CONFIG_DEFAULT_SERVER_PORT;
-    server.tcp_backlog = CONFIG_DEFAULT_TCP_BACKLOG;
+    /*https://juejin.cn/post/7155997400484544543*/
+    /*半 全 两个队列 */
+    server.tcp_backlog = CONFIG_DEFAULT_TCP_BACKLOG; //https://www.cnblogs.com/wanpengcoder/p/5354469.html
     server.bindaddr_count = 0;
     server.unixsocket = NULL;
     server.unixsocketperm = CONFIG_DEFAULT_UNIX_SOCKET_PERM;
