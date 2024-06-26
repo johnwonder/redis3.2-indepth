@@ -1102,6 +1102,7 @@ void ttlGenericCommand(client *c, int output_ms) {
     }
 }
 
+//实现了server.h的函数
 //TTL是 Time To Live的缩写
 //Round Trip Time (简称 RTT，数据包往返两端的时间)
 void ttlCommand(client *c) {

@@ -1423,7 +1423,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     */
     qblen = sdslen(c->querybuf);
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
-    //扩大字符数组以容纳读取的长度
+    //扩大字符数组以容纳读取的readlen长度
     c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
     /*读取*/
     /* c->querybuf+qblen 代表 移动到 c->querybuf+qblen 这个位置 */
