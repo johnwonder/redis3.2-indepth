@@ -1494,7 +1494,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             if (server.aof_fsync == AOF_FSYNC_ALWAYS)
                 aof_fsync(newfd);
             else if (server.aof_fsync == AOF_FSYNC_EVERYSEC)
-                aof_background_fsync(newfd);
+                aof_background_fsync(newfd); /*创建一个后台任务*/
             server.aof_selected_db = -1; /* Make sure SELECT is re-issued */
             aofUpdateCurrentSize();
             server.aof_rewrite_base_size = server.aof_current_size;

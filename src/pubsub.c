@@ -60,6 +60,7 @@ int pubsubSubscribeChannel(client *c, robj *channel) {
     list *clients = NULL;
     int retval = 0;
 
+    /*把channel 添加到客户端的 pubsub_channels 中去*/
     /* Add the channel to the client -> channels hash table */
     if (dictAdd(c->pubsub_channels,channel,NULL) == DICT_OK) {
         retval = 1;
@@ -68,17 +69,20 @@ int pubsubSubscribeChannel(client *c, robj *channel) {
         de = dictFind(server.pubsub_channels,channel);
         if (de == NULL) {
             clients = listCreate();
+            /*添加到服务端的pubsub_channels 字典中 */
+            /*channel 作为键 链表clients作为值*/
             dictAdd(server.pubsub_channels,channel,clients);
             incrRefCount(channel);
         } else {
             clients = dictGetVal(de);
         }
+        /*把当前客户端加入到链表clients尾部*/
         listAddNodeTail(clients,c);
     }
     /* Notify the client */
-    addReply(c,shared.mbulkhdr[3]);
-    addReply(c,shared.subscribebulk);
-    addReplyBulk(c,channel);
+    addReply(c,shared.mbulkhdr[3]); //*3\r\n
+    addReply(c,shared.subscribebulk); //$9\r\nsubscribe\r\n
+    addReplyBulk(c,channel); //类似 $9\r\nsubscribe\r\n
     addReplyLongLong(c,clientSubscriptionsCount(c));
     return retval;
 }
@@ -277,6 +281,7 @@ int pubsubPublishMessage(robj *channel, robj *message) {
 void subscribeCommand(client *c) {
     int j;
 
+    /*从第一个参数开始*/
     for (j = 1; j < c->argc; j++)
         pubsubSubscribeChannel(c,c->argv[j]);
     c->flags |= CLIENT_PUBSUB;
