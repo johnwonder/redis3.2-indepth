@@ -1993,6 +1993,7 @@ void initServer(void) {
         exit(1);
     }
 
+    /*创建redis数据库，初始化内部状态*/
     /* Create the Redis databases, and initialize other internal state. */
     for (j = 0; j < server.dbnum; j++) {
         server.db[j].dict = dictCreate(&dbDictType,NULL);

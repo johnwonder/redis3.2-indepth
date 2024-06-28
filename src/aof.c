@@ -1488,6 +1488,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
              * to this new file, so we can close it. */
             close(newfd);
         } else {
+            /*如果aof启用，那么用新的替换老的*/
             /* AOF enabled, replace the old fd with the new one. */
             oldfd = server.aof_fd;
             server.aof_fd = newfd;
