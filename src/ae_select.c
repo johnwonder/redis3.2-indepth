@@ -88,8 +88,13 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     // ————————————————
     // 版权声明：本文为CSDN博主「大1234草」的原创文章，遵循CC 4.0 BY-SA版权协议，转载请附上原文出处链接及本声明。
     // 原文链接：https://blog.csdn.net/sinat_38816924/article/details/125462501
+
+    //https://zhuanlan.zhihu.com/p/680145542
     retval = select(eventLoop->maxfd+1,
                 &state->_rfds,&state->_wfds,NULL,tvp);
+    //select 调用需要传入 fd 数组，需要拷贝一份到内核，高并发场景下这样的拷贝消耗的资源是惊人的。（可优化为不复制）
+
+    //依然需要遍历
     if (retval > 0) {
         
          /**

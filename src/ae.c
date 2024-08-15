@@ -148,6 +148,7 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
     }
     aeFileEvent *fe = &eventLoop->events[fd];
 
+    //调用FD_SET 把当前fd设置到 eventLoop->apidata 的 wfds 或者rfds上
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
         return AE_ERR;
         

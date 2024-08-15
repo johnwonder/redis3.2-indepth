@@ -70,10 +70,14 @@ int anetSetBlock(char *err, int fd, int non_block) {
     }
 
     if (non_block)
-        flags |= O_NONBLOCK;
+        flags |= O_NONBLOCK; 
     else
-        flags &= ~O_NONBLOCK;
+        flags &= ~O_NONBLOCK; //要把1改为0 所以要用与运算
 
+    //这个 read 函数的效果是，如果没有数据到达时（到达网卡并拷贝到了内核缓冲区），
+    //立刻返回一个错误值（-1），而不是阻塞地等待。
+    //操作系统提供了这样的功能，只需要在调用 read 前，将文件描述符设置为非阻塞即可
+    //https://mp.weixin.qq.com/s/XiU4dG9EKTVvUOV7U7D_Yg
     if (fcntl(fd, F_SETFL, flags) == -1) {
         anetSetError(err, "fcntl(F_SETFL,O_NONBLOCK): %s", strerror(errno));
         return ANET_ERR;

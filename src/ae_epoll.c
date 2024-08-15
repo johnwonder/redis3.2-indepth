@@ -83,6 +83,7 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     if (mask & AE_READABLE) ee.events |= EPOLLIN;
     if (mask & AE_WRITABLE) ee.events |= EPOLLOUT;
     ee.data.fd = fd;
+    //向内核添加、修改或删除要监控的文件描述符
     if (epoll_ctl(state->epfd,op,fd,&ee) == -1) return -1;
     return 0;
 }
@@ -93,6 +94,8 @@ static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int delmask) {
     int mask = eventLoop->events[fd].mask & (~delmask);
 
     ee.events = 0;
+    //EPOLLIN ： 表示对应的文件描述符可以读（包括对端SOCKET正常关闭）；
+    //EPOLLOUT： 表示对应的文件描述符可以写
     if (mask & AE_READABLE) ee.events |= EPOLLIN;
     if (mask & AE_WRITABLE) ee.events |= EPOLLOUT;
     ee.data.fd = fd;
@@ -118,6 +121,9 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     if (retval > 0) {
         int j;
 
+        /*
+        epoll高效的核心是：1、用户态和内核太共享内存mmap。2、数据到来采用事件通知机制（而不需要轮询）
+        */
         /**
          * epoll 相比 select 机制略有不同，
          * 在 epoll_wait 函数返回时并不需要遍历所有的 FD 查看读写情况；
