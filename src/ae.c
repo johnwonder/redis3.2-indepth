@@ -86,7 +86,7 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */
     for (i = 0; i < setsize; i++)
-        eventLoop->events[i].mask = AE_NONE;
+        eventLoop->events[i].mask = AE_NONE; /*结构体指针 竟然可以用数组下标访问*/
     return eventLoop;
 
 err:
@@ -175,6 +175,7 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
     if (mask & AE_WRITABLE) mask |= AE_BARRIER;
 
     aeApiDelEvent(eventLoop, fd, mask);
+    //更新mask
     fe->mask = fe->mask & (~mask);
     //更新最大文件描述符
     if (fd == eventLoop->maxfd && fe->mask == AE_NONE) {
