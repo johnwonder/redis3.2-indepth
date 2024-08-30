@@ -69,6 +69,7 @@ client *createClient(int fd) {
      * in the context of a client. When commands are executed in other
      * contexts (for instance a Lua script) we need a non connected client. */
     if (fd != -1) {
+        //不阻塞
         anetNonBlock(NULL,fd);
         anetEnableTcpNoDelay(NULL,fd);
         /*启用keepalive*/
