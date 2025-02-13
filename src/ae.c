@@ -86,7 +86,7 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */
     for (i = 0; i < setsize; i++)
-        eventLoop->events[i].mask = AE_NONE; /*结构体指针 竟然可以用数组下标访问*/
+        eventLoop->events[i].mask = AE_NONE; /*结构体指针 用数组下标访问*/
     return eventLoop;
 
 err:

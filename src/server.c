@@ -1573,10 +1573,10 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 void createSharedObjects(void) {
     int j;
 
-    shared.crlf = createObject(OBJ_STRING,sdsnew("\r\n"));
-    shared.ok = createObject(OBJ_STRING,sdsnew("+OK\r\n"));
-    shared.err = createObject(OBJ_STRING,sdsnew("-ERR\r\n"));
-    shared.emptybulk = createObject(OBJ_STRING,sdsnew("$0\r\n\r\n"));
+    shared.crlf = createObject(OBJ_STRING,sdsnew("\r\n")); //换行
+    shared.ok = createObject(OBJ_STRING,sdsnew("+OK\r\n")); //ok
+    shared.err = createObject(OBJ_STRING,sdsnew("-ERR\r\n")); //err
+    shared.emptybulk = createObject(OBJ_STRING,sdsnew("$0\r\n\r\n")); //$0
     shared.czero = createObject(OBJ_STRING,sdsnew(":0\r\n"));
     shared.cone = createObject(OBJ_STRING,sdsnew(":1\r\n"));
     shared.cnegone = createObject(OBJ_STRING,sdsnew(":-1\r\n"));
@@ -1659,6 +1659,7 @@ void createSharedObjects(void) {
      * actually used for their value but as a special object meaning
      * respectively the minimum possible string and the maximum possible
      * string in string comparisons for the ZRANGEBYLEX command. */
+    //并不实际用于它们的值，而是作为一个特殊对象，分别表示ZRANGEBYLEX命令的字符串比较中的最小可能字符串和最大可能字符串。
     shared.minstring = createStringObject("minstring",9);
     shared.maxstring = createStringObject("maxstring",9);
 }
@@ -1673,7 +1674,7 @@ void initServerConfig(void) {
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
     server.configfile = NULL;
     server.executable = NULL;
-    server.hz = CONFIG_DEFAULT_HZ;
+    server.hz = CONFIG_DEFAULT_HZ;//10
     //牛逼
     server.runid[CONFIG_RUN_ID_SIZE] = '\0';
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
@@ -1695,8 +1696,8 @@ void initServerConfig(void) {
     server.client_max_querybuf_len = PROTO_MAX_QUERYBUF_LEN;
     server.saveparams = NULL;
     server.loading = 0;
-    server.logfile = zstrdup(CONFIG_DEFAULT_LOGFILE);
-    server.syslog_enabled = CONFIG_DEFAULT_SYSLOG_ENABLED;
+    server.logfile = zstrdup(CONFIG_DEFAULT_LOGFILE); //默认为空
+    server.syslog_enabled = CONFIG_DEFAULT_SYSLOG_ENABLED; //0
     server.syslog_ident = zstrdup(CONFIG_DEFAULT_SYSLOG_IDENT);
     server.syslog_facility = LOG_LOCAL0;
     server.daemonize = CONFIG_DEFAULT_DAEMONIZE;
@@ -1904,6 +1905,12 @@ int restartServer(int flags, mstime_t delay) {
     return C_ERR; /* Never reached. */
 }
 
+/*
+此函数将尝试根据配置的最大客户端数提高打开文件的最大数量
+它还保留了一些文件描述符（CONFIG_MIN_RESERVED_FDS），用于持久化、监听套接字、日志文件等的额外操作
+
+如果不可能根据配置的最大客户端数量设置限制，则该函数将执行相反的设置server.Maxclients到我们实际可以处理的值。
+*/
 /* This function will try to raise the max number of open files accordingly to
  * the configured max number of clients. It also reserves a number of file
  * descriptors (CONFIG_MIN_RESERVED_FDS) for extra operations of
@@ -1923,6 +1930,7 @@ void adjustOpenFilesLimit(void) {
     } else {
         rlim_t oldlimit = limit.rlim_cur;
 
+        /* 如果当前限制不满足我们的需要那就 设置文件句柄的最大值 */
         /* Set the max number of files if the current limit is not enough
          * for our needs. */
         if (oldlimit < maxfiles) {
@@ -1943,15 +1951,20 @@ void adjustOpenFilesLimit(void) {
                 /* We failed to set file limit to 'bestlimit'. Try with a
                  * smaller limit decrementing by a few FDs per iteration. */
                 if (bestlimit < decr_step) break;
+                //每次减16
                 bestlimit -= decr_step;
             }
 
+            /*
+                如果我们最后一次尝试甚至更低 就再假设我们最初得到的限制仍然有效，
+            */
             /* Assume that the limit we get initially is still valid if
              * our last try was even lower. */
             if (bestlimit < oldlimit) bestlimit = oldlimit;
 
             if (bestlimit < maxfiles) {
                 int old_maxclients = server.maxclients;
+                //设置maxclients 为bestlimit -32
                 server.maxclients = bestlimit-CONFIG_MIN_RESERVED_FDS;
                 if (server.maxclients < 1) {
                     serverLog(LL_WARNING,"Your current 'ulimit -n' "
@@ -1975,6 +1988,8 @@ void adjustOpenFilesLimit(void) {
                     "If you need higher maxclients increase 'ulimit -n'.",
                     (unsigned long long) bestlimit, server.maxclients);
             } else {
+
+                //成功
                 serverLog(LL_NOTICE,"Increased maximum number of open files "
                     "to %llu (it was originally set to %llu).",
                     (unsigned long long) maxfiles,
@@ -2031,6 +2046,7 @@ int listenToPort(int port, int *fds, int *count) {
      * entering the loop if j == 0. */
     if (server.bindaddr_count == 0) server.bindaddr[0] = NULL;
     //即使 server.bindaddr_count 为0 也会循环一次
+    //loadServerConfig的时候 如果有配置 那么就加载server.bindaddr_count 就不为0
     for (j = 0; j < server.bindaddr_count || j == 0; j++) {
         if (server.bindaddr[j] == NULL) {
             int unsupported = 0;
@@ -2038,15 +2054,18 @@ int listenToPort(int port, int *fds, int *count) {
              * server.bindaddr_count == 0. */
             fds[*count] = anetTcp6Server(server.neterr,port,NULL,
                 server.tcp_backlog);
+
             if (fds[*count] != ANET_ERR) {
+                //如果成功
                 anetNonBlock(NULL,fds[*count]);
                 (*count)++;
             } else if (errno == EAFNOSUPPORT) {
                 unsupported++;
                 serverLog(LL_WARNING,"Not listening to IPv6: unsupproted");
             }
-
+            //如果成功 或者不支持的情况，绑定IPv4
             if (*count == 1 || unsupported) {
+                //也绑定ipv4
                 /* Bind the IPv4 address as well. */
                 fds[*count] = anetTcpServer(server.neterr,port,NULL,
                     server.tcp_backlog);
@@ -2061,6 +2080,7 @@ int listenToPort(int port, int *fds, int *count) {
             /* Exit the loop if we were able to bind * on IPv4 and IPv6,
              * otherwise fds[*count] will be ANET_ERR and we'll print an
              * error and return to the caller with an error. */
+            //正常或者异常情况下都退出
             if (*count + unsupported == 2) break;
         } else if (strchr(server.bindaddr[j],':')) {
             /* Bind IPv6 address. */
@@ -2119,7 +2139,11 @@ void initServer(void) {
     //因此，signal(SIGHUP, SIG_IGN); 这行代码的作用是将 SIGHUP 信号的处理设置为忽略。
     //这意味着，当进程接收到 SIGHUP 信号时，它不会终止，而是会继续运行，就像没有接收到任何信号一样。
     signal(SIGHUP, SIG_IGN);
+    //‌SIGPIPE是一个在Linux网络编程中常见的信号，当一个进程尝试向一个已关闭的管道或套接字写入数据时，内核会向该进程发送SIGPIPE信号‌。
+    //SIGPIPE信号的主要作用是提醒进程注意错误，防止进程因为错误的写操作而崩溃。默认情况下，接收到SIGPIPE信号的进程会终止，这可能导致服务端异常退出，影响业务正常运转，甚至造成数据丢失等问题‌
+    //在网络编程中，特别是涉及TCP连接时，需要注意SIGPIPE信号的处理。因为TCP的全双工信道其实是两条单工信道，当一端关闭连接时，另一端可能仍然尝试发送数据，此时就会触发SIGPIPE信号‌4。
     signal(SIGPIPE, SIG_IGN);
+    //设置信号处理器
     setupSignalHandlers();
 
     if (server.syslog_enabled) {
@@ -2127,7 +2151,7 @@ void initServer(void) {
             server.syslog_facility);
     }
 
-    server.pid = getpid();
+    server.pid = getpid(); //获取pid
     server.current_client = NULL;
     server.clients = listCreate(); //创建客户端列表
     server.clients_to_close = listCreate();
@@ -2144,11 +2168,13 @@ void initServer(void) {
 
     //创建共享对象。。比如wrongtypeerr 等。。
     createSharedObjects();
+    //设置合适的maxclients
     adjustOpenFilesLimit();
+    //默认值为10000 + 128
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
-    //开始监听tcp连接
+    //port不为0的时候才会开始监听tcp连接
     /* Open the TCP listening socket for the user commands. */
     if (server.port != 0 &&
         listenToPort(server.port,server.ipfd,&server.ipfd_count) == C_ERR)
@@ -2166,6 +2192,7 @@ void initServer(void) {
         anetNonBlock(NULL,server.sofd);
     }
 
+    /*如果没有监听的socket 那就直接退出*/
     /* Abort if there are no listening sockets at all. */
     if (server.ipfd_count == 0 && server.sofd < 0) {
         serverLog(LL_WARNING, "Configured to not listen anywhere, exiting.");
