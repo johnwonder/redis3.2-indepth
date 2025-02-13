@@ -27,5 +27,6 @@
         "type_traits": "c",
         "locale.h": "c",
         "cstring": "c"
-    }
+    },
+    "makefile.configureOnOpen": true
 }

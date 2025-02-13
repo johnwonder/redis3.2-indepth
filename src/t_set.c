@@ -60,12 +60,14 @@ int setTypeAdd(robj *subject, robj *value) {
             return 1;
         }
     } else if (subject->encoding == OBJ_ENCODING_INTSET) {
+        /*如果当前插入的值能够转换为整数*/
         if (isObjectRepresentableAsLongLong(value,&llval) == C_OK) {
             uint8_t success = 0;
             subject->ptr = intsetAdd(subject->ptr,llval,&success);
             if (success) {
                 /* Convert to regular set when the intset contains
                  * too many entries. */
+                /* 如果有太多的元素 默认 512  那么就转换为哈希表 */
                 if (intsetLen(subject->ptr) > server.set_max_intset_entries)
                     setTypeConvert(subject,OBJ_ENCODING_HT);
                 return 1;
@@ -811,7 +813,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
     for (j = 0; j < setnum; j++) {
         robj *setobj = dstkey ?
             lookupKeyWrite(c->db,setkeys[j]) :
-            lookupKeyRead(c->db,setkeys[j]);
+            lookupKeyRead(c->db,setkeys[j]); //
         if (!setobj) {
             zfree(sets);
             if (dstkey) {
@@ -825,6 +827,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
             }
             return;
         }
+        //不是OBJ_SET 才返回1
         if (checkType(c,setobj,OBJ_SET)) {
             zfree(sets);
             return;
@@ -934,6 +937,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
     zfree(sets);
 }
 
+/* 用于返回给定所有集合的交集 */
 void sinterCommand(client *c) {
     sinterGenericCommand(c,c->argv+1,c->argc-1,NULL);
 }

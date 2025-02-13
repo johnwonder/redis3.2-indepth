@@ -151,10 +151,12 @@ void setCommand(client *c) {
         }
     }
 
+    /*调用命令的时候 再 编码对象 */
+    /*一开始 只是创建一个 raw编码的对象*/
     c->argv[2] = tryObjectEncoding(c->argv[2]);
     setGenericCommand(c,flags,c->argv[1],c->argv[2],expire,unit,NULL,NULL);
 }
-
+/* 键不存在就写入 */
 void setnxCommand(client *c) {
     c->argv[2] = tryObjectEncoding(c->argv[2]);
     setGenericCommand(c,OBJ_SET_NX,c->argv[1],c->argv[2],NULL,0,shared.cone,shared.czero);

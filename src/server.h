@@ -50,18 +50,18 @@
 
 typedef long long mstime_t; /* millisecond time type. */
 
-#include "ae.h"      /* Event driven programming library */
-#include "sds.h"     /* Dynamic safe strings */
-#include "dict.h"    /* Hash tables */
-#include "adlist.h"  /* Linked lists */
-#include "zmalloc.h" /* total memory usage aware version of malloc/free */
-#include "anet.h"    /* Networking the easy way */
-#include "ziplist.h" /* Compact list data structure */
-#include "intset.h"  /* Compact integer set structure */
-#include "version.h" /* Version macro */
-#include "util.h"    /* Misc functions useful in many places */
-#include "latency.h" /* Latency monitor API */
-#include "sparkline.h" /* ASCII graphs API */
+#include "ae.h"      /* 事件驱动库 Event driven programming library */
+#include "sds.h"     /* 动态安全的字符串 Dynamic safe strings */
+#include "dict.h"    /* hash表 Hash tables */
+#include "adlist.h"  /* 链表 Linked lists */
+#include "zmalloc.h" /* 总的内存使用 total memory usage aware version of malloc/free */
+#include "anet.h"    /* 简单方式的网络 Networking the easy way */
+#include "ziplist.h" /* 紧链表数据结构 Compact list data structure */
+#include "intset.h"  /* 紧整数集合结构 Compact integer set structure */
+#include "version.h" /* 版本宏 Version macro */
+#include "util.h"    /* 杂项函数在很多地方都很有用 Misc functions useful in many places */
+#include "latency.h" /* 延迟监视器API Latency monitor API */
+#include "sparkline.h" /* ASCII图形API ASCII graphs API */
 #include "quicklist.h"
 
 /* Following includes allow test functions to be called from Redis main() */
@@ -80,7 +80,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_MAX_HZ            500
 #define CONFIG_DEFAULT_SERVER_PORT        6379    /* TCP port */
 #define CONFIG_DEFAULT_TCP_BACKLOG       511     /* TCP listen backlog */
-#define CONFIG_DEFAULT_CLIENT_TIMEOUT       0       /* default client timeout: infinite */
+#define CONFIG_DEFAULT_CLIENT_TIMEOUT       0       /* default client timeout: infinite 默认客户端超时时间 无限长 */
 #define CONFIG_DEFAULT_DBNUM     16
 #define CONFIG_MAX_LINE    1024
 #define CRON_DBS_PER_CALL 16
@@ -195,19 +195,23 @@ typedef long long mstime_t; /* millisecond time type. */
 #define OBJ_ZSET 3
 #define OBJ_HASH 4
 
+/*
+对象编码。某些类型的对象，如字符串和哈希，可以在内部以多种方式表示。
+该对象的encoding字段被设置为其中一个字段
+*/
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
  * internally represented in multiple ways. The 'encoding' field of the object
  * is set to one of this fields for this object. */
-#define OBJ_ENCODING_RAW 0     /* Raw representation */
-#define OBJ_ENCODING_INT 1     /* Encoded as integer */
-#define OBJ_ENCODING_HT 2      /* Encoded as hash table */
+#define OBJ_ENCODING_RAW 0     /* Raw representation 原始表现 */
+#define OBJ_ENCODING_INT 1     /* Encoded as integer 编码为整数 */
+#define OBJ_ENCODING_HT 2      /* Encoded as hash table  编码为哈希表*/
 #define OBJ_ENCODING_ZIPMAP 3  /* Encoded as zipmap */
-#define OBJ_ENCODING_LINKEDLIST 4 /* Encoded as regular linked list */
-#define OBJ_ENCODING_ZIPLIST 5 /* Encoded as ziplist */
-#define OBJ_ENCODING_INTSET 6  /* Encoded as intset */
-#define OBJ_ENCODING_SKIPLIST 7  /* Encoded as skiplist */
+#define OBJ_ENCODING_LINKEDLIST 4 /* Encoded as regular linked list 编码为链表 */
+#define OBJ_ENCODING_ZIPLIST 5 /* Encoded as ziplist 编码为压缩列表 */
+#define OBJ_ENCODING_INTSET 6  /* Encoded as intset 编码为整数集合*/
+#define OBJ_ENCODING_SKIPLIST 7  /* Encoded as skiplist 编码为跳跃链表 */
 #define OBJ_ENCODING_EMBSTR 8  /* Embedded sds string encoding */
-#define OBJ_ENCODING_QUICKLIST 9 /* Encoded as linked list of ziplists */
+#define OBJ_ENCODING_QUICKLIST 9 /* Encoded as linked list of ziplists  编码为压缩列表的链表 */
 
 /* Defines related to the dump file format. To store 32 bits lengths for short
  * keys requires a lot of space, so we check the most significant 2 bits of
@@ -524,15 +528,17 @@ typedef struct redisObject {
 
 /* To improve the quality of the LRU approximation we take a set of keys
  * that are good candidate for eviction across freeMemoryIfNeeded() calls.
+    为了提高LRU近似的质量，我们取了一组键，这些键在freeMemoryIfNeeded（）调用中是很好的移除候选
  *
+    排除池中的条目按空闲时间排序，将空闲时间较大的条目放在右边（升序）。
  * Entries inside the eviciton pool are taken ordered by idle time, putting
  * greater idle times to the right (ascending order).
  *
  * Empty entries have the key pointer set to NULL. */
 #define MAXMEMORY_EVICTION_POOL_SIZE 16
 struct evictionPoolEntry {
-    unsigned long long idle;    /* Object idle time. */
-    sds key;                    /* Key name. */
+    unsigned long long idle;    /* Object idle time. 对象的空闲时间*/
+    sds key;                    /* Key name.  键名称*/
 };
 
 /* Redis database representation. There are multiple databases identified
@@ -769,21 +775,21 @@ struct redisServer {
     /* General */
     pid_t pid;                  /* Main process pid. */ /*主进程id*/
     char *configfile;           /* Absolute config file path, or NULL */ /*配置文件路径*/
-    char *executable;           /* Absolute executable file path. */
-    char **exec_argv;           /* Executable argv vector (copy). */
-    int hz;                     /* serverCron() calls frequency in hertz */
+    char *executable;           /* Absolute executable file path.  进程文件绝对路径 */
+    char **exec_argv;           /* Executable argv vector (copy).  执行参数 */
+    int hz;                     /* serverCron() calls frequency in hertz serverCron函数调用频率 */
     redisDb *db;
     dict *commands;             /* Command table */
     dict *orig_commands;        /* Command table before command renaming. */
     aeEventLoop *el;
     unsigned lruclock:LRU_BITS; /* Clock for LRU eviction */
     int shutdown_asap;          /* SHUTDOWN needed ASAP */
-    int activerehashing;        /* Incremental rehash in serverCron() */
+    int activerehashing;        /* 在serverCron（）中进行增量散列 Incremental rehash in serverCron() */
     char *requirepass;          /* Pass for AUTH command, or NULL */
     char *pidfile;              /* PID file path */
     int arch_bits;              /* 32 or 64 depending on sizeof(long) */
     int cronloops;              /* Number of times the cron function run */
-    char runid[CONFIG_RUN_ID_SIZE+1];  /* ID always different at every exec. */
+    char runid[CONFIG_RUN_ID_SIZE+1];  /* ID always different at every exec.  每个进程的ID总是不同的*/
     int sentinel_mode;          /* True if this instance is a Sentinel. */
     /* Networking */
     int port;                   /* TCP listening port */
@@ -1052,11 +1058,13 @@ typedef struct pubsubPattern {
 
 typedef void redisCommandProc(client *c);
 typedef int *redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
+
+//redisCommand 是结构体标记
 struct redisCommand {
-    char *name;
-    redisCommandProc *proc;
+    char *name; /*用指针可以方便计算字节大小*/
+    redisCommandProc *proc; //命令实现的函数指针
     int arity;
-    char *sflags; /* Flags as string representation, one char per flag. */
+    char *sflags; /* 字符串表现的标记 Flags as string representation, one char per flag. */
     int flags;    /* The actual flags, obtained from the 'sflags' field. */
     /* Use a function to determine keys arguments in a command line.
      * Used for Redis Cluster redirect. */
@@ -1128,7 +1136,7 @@ typedef struct {
 /*-----------------------------------------------------------------------------
  * Extern declarations
  *----------------------------------------------------------------------------*/
-
+//外部变量
 extern struct redisServer server;
 extern struct sharedObjectsStruct shared;
 extern dictType setDictType;
@@ -1455,6 +1463,7 @@ int keyspaceEventsStringToFlags(char *classes);
 sds keyspaceEventsFlagsToString(int flags);
 
 /* Configuration */
+/* config.c 中定义了方法*/
 void loadServerConfig(char *filename, char *options);
 void appendServerSaveParams(time_t seconds, int changes);
 void resetServerSaveParams(void);

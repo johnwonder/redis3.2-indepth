@@ -64,6 +64,8 @@ void zlibc_free(void *ptr) {
 #endif
 #endif
 
+//在内存分配方面，Redis支持使用不同的内存分配器，包括
+//glibc库提供的默认分配器tcmalloc、第三方库提供的jemalloc
 /* Explicitly override malloc/free etc when using tcmalloc. */
 #if defined(USE_TCMALLOC)
 #define malloc(size) tc_malloc(size)
@@ -108,6 +110,12 @@ void zlibc_free(void *ptr) {
     } \
 } while(0)
 
+// //sizeof(long)：获取 long 类型在当前平台上的大小，以字节为单位。这个值通常是4或8，取决于编译器和目标平台。
+//_n & (sizeof(long) - 1)：这是一个位与运算。它的作用是获取 _n 的低 log2(sizeof(long)) 位。
+//换句话说，它计算 _n 除以 sizeof(long) 的余数，但是通过位运算来实现，这样通常更快。
+//sizeof(long) - (_n & (sizeof(long) - 1))：这个表达式计算的是 _n 需要增加多少才能成为 sizeof(long) 的倍数。
+//如果 _n 已经是 sizeof(long) 的倍数，这个表达式的结果将是 sizeof(long)；否则，它将是一个小于 sizeof(long) 的正数。
+//比如__n等于7 那么 7&7 > 0  __n += 8 -
 #define update_zmalloc_stat_free(__n) do { \
     size_t _n = (__n); \
     if (_n&(sizeof(long)-1)) _n += sizeof(long)-(_n&(sizeof(long)-1)); \
@@ -129,6 +137,7 @@ static void zmalloc_default_oom(size_t size) {
     abort();
 }
 
+//静态函数指针
 static void (*zmalloc_oom_handler)(size_t) = zmalloc_default_oom;
 
 void *zmalloc(size_t size) {
@@ -257,6 +266,7 @@ void zmalloc_enable_thread_safeness(void) {
 }
 
 void zmalloc_set_oom_handler(void (*oom_handler)(size_t)) {
+    //重新设置静态函数指针
     zmalloc_oom_handler = oom_handler;
 }
 

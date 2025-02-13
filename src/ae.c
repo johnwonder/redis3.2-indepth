@@ -250,14 +250,17 @@ int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
     return AE_ERR; /* NO event with the specified ID found */
 }
 
-//此操作有助于了解select可以在不延迟任何事件的情况下处于睡眠状态的时间
+//此操作有助于知道select可以在不延迟任何事件的情况下处于睡眠状态的时间
 /* Search the first timer to fire.
  * This operation is useful to know how many time the select can be
  * put in sleep without to delay any event.
  * If there are no timers NULL is returned.
  *
+ * 注意，时间复杂度是O(N) 因为时间事件是无序的。
  * Note that's O(N) since time events are unsorted.
  * Possible optimizations (not needed by Redis so far, but...):
+ * 1）插入有序，这样最近的就在头部，但是插入和删除的时间复杂度就是O(N)了
+ * 2）使用跳跃表
  * 1) Insert the event in order, so that the nearest is just the head.
  *    Much better but still insertion or deletion of timers is O(N).
  * 2) Use a skiplist to have this operation as O(1) and insertion as O(log(N)).
@@ -267,7 +270,16 @@ static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
     aeTimeEvent *te = eventLoop->timeEventHead;
     aeTimeEvent *nearest = NULL;
 
+    /* 循环te链表 */
     while(te) {
+
+        /*如果nearest不存在 
+        或者 当前事件的 发生时间(秒) 在 最近事件的发生时间前面 
+        或者 当前事件的 发生时间(秒) 和 最近事件的发生时间相同
+        但是 当前事件的 发生时间(毫秒级别) 在 最近事件的发生时间 前面
+
+        那么当前事件就是最近的时间事件
+        */
         if (!nearest || te->when_sec < nearest->when_sec ||
                 (te->when_sec == nearest->when_sec &&
                  te->when_ms < nearest->when_ms))
@@ -277,13 +289,25 @@ static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
     return nearest;
 }
 
+/* 处理时间事件 */
 /* Process time events */
 static int processTimeEvents(aeEventLoop *eventLoop) {
+    /* 处理的数量 */
     int processed = 0;
     aeTimeEvent *te, *prev;
     long long maxId;
+    /* 当前时间 */
     time_t now = time(NULL);
 
+    /*
+        如果将系统时钟移到未来，然后再设置回正确的值，可能会导致时间事件以随机方式延迟。
+        这通常意味着计划的操作不会很快执行
+
+        在这里，我们尝试检测系统时钟倾斜，
+        并在发生这种情况时强制所有时间事件尽快处理:
+        其思想是，更早地处理事件比无限期地延迟事件危险性较小，
+        实践表明确实如此
+    */
     /* If the system clock is moved to the future, and then set back to the
      * right value, time events may be delayed in a random way. Often this
      * means that scheduled operations will not be performed soon enough.
@@ -299,6 +323,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
             te = te->next;
         }
     }
+    /*设置当前时间*/
     eventLoop->lastTime = now;
 
     prev = NULL;
@@ -308,6 +333,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
         long now_sec, now_ms;
         long long id;
 
+        /*删除计划删除的事件*/
         /* Remove events scheduled for deletion. */
         if (te->id == AE_DELETED_EVENT_ID) {
             aeTimeEvent *next = te->next;
@@ -322,6 +348,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
             continue;
         }
 
+        /*确保我们在此迭代中不处理由时间事件创建的时间事件。注意，这个检查目前是无用的*/
         /* Make sure we don't process time events created by time events in
          * this iteration. Note that this check is currently useless: we always
          * add new timers on the head, however if we change the implementation
@@ -368,18 +395,21 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
  * Without special flags the function sleeps until some file event
  * fires, or when the next time event occurs (if any).
  *
- * If flags is 0, the function does nothing and returns.
+ * If flags is 0, the function does nothing and returns. flag为0，那么就直接返回
  * if flags has AE_ALL_EVENTS set, all the kind of events are processed.
  * if flags has AE_FILE_EVENTS set, file events are processed.
  * if flags has AE_TIME_EVENTS set, time events are processed.
+
  * if flags has AE_DONT_WAIT set the function returns ASAP until all
  * the events that's possible to process without to wait are processed.
- *
+ * * 该函数会尽快返回，直到所有不需要等待即可处理的事件都被处理完毕
  * The function returns the number of events processed. */
 int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 {
+    //处理数量，事件数量
     int processed = 0, numevents;
 
+    /* 如果没有啥事要干，就立即返回 */
     /* Nothing to do? return ASAP */
     if (!(flags & AE_TIME_EVENTS) && !(flags & AE_FILE_EVENTS)) return 0;
 
@@ -397,6 +427,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
         aeTimeEvent *shortest = NULL;
         struct timeval tv, *tvp;
 
+        /*如果 要处理时间事件  并且 可以等待 那么就去查找最近的时间事件 */
         if (flags & AE_TIME_EVENTS && !(flags & AE_DONT_WAIT))
             shortest = aeSearchNearestTimer(eventLoop);
         if (shortest) {
@@ -413,6 +444,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
                 (shortest->when_sec - now_sec)*1000 +
                 shortest->when_ms - now_ms;
 
+            /* 计算select等函数可以等待的时间*/
             if (ms > 0) {
                 //printf("最近的时间大于0\n");
                 tvp->tv_sec = ms/1000;
@@ -423,6 +455,9 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
                 tvp->tv_usec = 0;
             }
         } else {
+
+            /*没有找到时间事件 */
+
             /* If we have to check for events but need to return
              * ASAP(尽快) because of AE_DONT_WAIT we need to set the timeout
              * to zero */
@@ -433,6 +468,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             } else {
                 //printf("wait forever");
                 /* Otherwise we can block */
+                /* 阻塞 一直等待 */
                 tvp = NULL; /* wait forever */
             }
         }
@@ -500,6 +536,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             processed++;
         }
     }
+    /*检查时间事件 并处理 */
     /* Check time events */
     if (flags & AE_TIME_EVENTS)
         processed += processTimeEvents(eventLoop);
@@ -534,6 +571,8 @@ void aeMain(aeEventLoop *eventLoop) {
     while (!eventLoop->stop) {
         if (eventLoop->beforesleep != NULL)
             eventLoop->beforesleep(eventLoop);
+
+        /*处理所有事件*/
         aeProcessEvents(eventLoop, AE_ALL_EVENTS);
     }
 }

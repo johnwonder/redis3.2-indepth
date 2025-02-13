@@ -41,7 +41,7 @@ robj *createObject(int type, void *ptr) {
     o->type = type;
     /*默认是RAW*/
     o->encoding = OBJ_ENCODING_RAW;
-    o->ptr = ptr;
+    o->ptr = ptr; //ptr指针
     o->refcount = 1;
 
     /* Set the LRU to the current lruclock (minutes resolution). */
@@ -53,6 +53,8 @@ robj *createObject(int type, void *ptr) {
  * string object where o->ptr points to a proper sds string. */
 robj *createRawStringObject(const char *ptr, size_t len) {
     //raw：robj 跟 sds 是分别 malloc 的
+
+    //raw 存储形式不一样，它会进行两次 malloc 分配，内存释放需要两次调用，robj 和 SDS 在内存地址上一般是不连续的
     return createObject(OBJ_STRING,sdsnewlen(ptr,len));
 }
 
@@ -306,23 +308,25 @@ void freeHashObject(robj *o) {
         break;
     }
 }
-
+/*增加引用计数*/
 void incrRefCount(robj *o) {
     o->refcount++;
 }
 
+/*降低引用计数 如果引用计数为1那么就释放内存*/
 void decrRefCount(robj *o) {
     if (o->refcount <= 0) serverPanic("decrRefCount against refcount <= 0");
     if (o->refcount == 1) {
         //// 如果 robj 引用计数器为 1，则代表需要释放对应 robj
         switch(o->type) {
-        case OBJ_STRING: freeStringObject(o); break;
+        case OBJ_STRING: freeStringObject(o); break; //这里判断了raw 类型的 需要释放sds
         case OBJ_LIST: freeListObject(o); break;
         case OBJ_SET: freeSetObject(o); break;
         case OBJ_ZSET: freeZsetObject(o); break;
         case OBJ_HASH: freeHashObject(o); break;
         default: serverPanic("Unknown object type"); break;
         }
+        //这里释放o
         zfree(o);
     } else {
         //// 如果不是共享对象，则减小引用计数器
@@ -365,6 +369,7 @@ int checkType(client *c, robj *o, int type) {
 
 int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
     serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
+    //如果对象本身就是int类型的
     if (o->encoding == OBJ_ENCODING_INT) {
         if (llval) *llval = (long) o->ptr;
         return C_OK;
@@ -386,6 +391,9 @@ robj *tryObjectEncoding(robj *o) {
     serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
 
     /* 判断是否是OBJ_ENCODING_RAW或OBJ_ENCODING_EMBSTR编码 */
+    /*
+        我们只对RAW或EMBSTR编码的对象尝试一些专门的编码，换句话说，这些对象仍然由实际的字符数组表示。
+    */
     /* We try some specialized encoding only for objects that are
      * RAW or EMBSTR encoded, in other words objects that are still
      * in represented by an actually array of chars. */
@@ -473,6 +481,7 @@ robj *getDecodedObject(robj *o) {
         incrRefCount(o);
         return o;
     }
+    //整数编码 但是是字符串类型
     if (o->type == OBJ_STRING && o->encoding == OBJ_ENCODING_INT) {
         char buf[32];
 

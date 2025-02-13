@@ -141,6 +141,8 @@ int yesnotoi(char *s) {
 }
 //实现了server.h中的方法
 void appendServerSaveParams(time_t seconds, int changes) {
+    //按需分配
+    //也就是说 调用该方法的时候 再分配内存 牛逼
     server.saveparams = zrealloc(server.saveparams,sizeof(struct saveparam)*(server.saveparamslen+1));
     server.saveparams[server.saveparamslen].seconds = seconds;
     server.saveparams[server.saveparamslen].changes = changes;
@@ -148,6 +150,7 @@ void appendServerSaveParams(time_t seconds, int changes) {
 }
 
 //实现了server.h中的方法
+//config set命令的时候也会调用
 void resetServerSaveParams(void) {
     zfree(server.saveparams);
     server.saveparams = NULL;
@@ -1288,7 +1291,7 @@ dictType optionSetDictType = {
 struct rewriteConfigState {
     dict *option_to_line; /* Option -> list of config file lines map */
     dict *rewritten;      /* Dictionary of already processed options */
-    int numlines;         /* Number of lines in current config */
+    int numlines;         /* Number of lines in current config  在当前配置里行的数量 */
     sds *lines;           /* Current lines as an array of sds strings */
     int has_tail;         /* True if we already added directives that were
                              not present in the original config file. */
@@ -1902,6 +1905,7 @@ void configCommand(client *c) {
             addReplyError(c,"The server is running without a config file");
             return;
         }
+        /*重写配置*/
         if (rewriteConfig(server.configfile) == -1) {
             serverLog(LL_WARNING,"CONFIG REWRITE failed: %s", strerror(errno));
             addReplyErrorFormat(c,"Rewriting config file: %s", strerror(errno));

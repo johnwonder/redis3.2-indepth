@@ -53,6 +53,7 @@ uint64_t intrev64(uint64_t v);
 #define intrev32ifbe(v) (v) //https://blog.csdn.net/weixin_43705457/article/details/104961895
 #define intrev64ifbe(v) (v)
 #else
+/* 从 小端 转换成大端 */
 #define memrev16ifbe(p) memrev16(p)
 #define memrev32ifbe(p) memrev32(p)
 #define memrev64ifbe(p) memrev64(p)

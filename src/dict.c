@@ -79,23 +79,35 @@ unsigned int dictIntHashFunction(unsigned int key)
     return key;
 }
 
+/*
+uint32_t的范围是从0到2^32 - 1，即0到4,294,967,295。
+这种类型的主要优势在于其精确的类型大小和跨平台兼容性，确保无论在什么平台上都占用4字节（32位），
+这对于需要固定大小数据类型的应用场景（如网络协议、文件格式解析、硬件接口等）非常有用‌
+*/
 static uint32_t dict_hash_function_seed = 5381;
 
+//设置哈希函数的种子。
 void dictSetHashFunctionSeed(uint32_t seed) {
     dict_hash_function_seed = seed;
 }
 
+//获取哈希函数的种子
 uint32_t dictGetHashFunctionSeed(void) {
     return dict_hash_function_seed;
 }
 
 /* MurmurHash2, by Austin Appleby
  * Note - This code makes a few assumptions about how your machine behaves -
+   这段代码对机器的行为做了一些假设
+   1.我们可以从任何地址读取一个4字节的值而不会崩溃
+   2.sizeof(int) == 4
  * 1. We can read a 4-byte value from any address without crashing
  * 2. sizeof(int) == 4
  *
  * And it has a few limitations -
  *
+ * 1.它不会以增量的方式工作
+ * 2. 它不会在小端和大端机器上产生相同的结果
  * 1. It will not work incrementally.
  * 2. It will not produce the same results on little-endian and big-endian
  *    machines.
@@ -123,8 +135,8 @@ unsigned int dictGenHashFunction(const void *key, int len) {
         h *= m;
         h ^= k;
 
-        data += 4;
-        len -= 4;
+        data += 4;//地址加4
+        len -= 4;//长度减4
     }
 
     /* Handle the last few bytes of the input array  */
@@ -143,6 +155,7 @@ unsigned int dictGenHashFunction(const void *key, int len) {
     return (unsigned int)h;
 }
 
+/* 大小写不敏感的 hash方法*/
 /* And a case insensitive hash function (based on djb hash) */
 unsigned int dictGenCaseHashFunction(const unsigned char *buf, int len) {
     unsigned int hash = (unsigned int)dict_hash_function_seed;
@@ -154,6 +167,7 @@ unsigned int dictGenCaseHashFunction(const unsigned char *buf, int len) {
 
 /* ----------------------------- API implementation ------------------------- */
 
+/*静态方法*/
 /* Reset a hash table already initialized with ht_init().
  * NOTE: This function should only be called by ht_destroy(). */
 static void _dictReset(dictht *ht)
@@ -325,6 +339,9 @@ int dictRehashMilliseconds(dict *d, int ms) {
     long long start = timeInMilliseconds();
     int rehashes = 0;
 
+    /*
+      rehash时间不能超过 1ms
+    */
     while(dictRehash(d,100)) {
         rehashes += 100;
         if (timeInMilliseconds()-start > ms) break;
@@ -332,6 +349,10 @@ int dictRehashMilliseconds(dict *d, int ms) {
     return rehashes;
 }
 
+/*
+    该函数只执行重散列的一个步骤，并且仅在没有安全迭代器绑定到散列表的情况下执行。
+    当我们在重散列过程中使用迭代器时，我们不能混淆两个哈希表，否则可能会丢失或重复某些元素
+*/
 /* This function performs just a step of rehashing, and only if there are
  * no safe iterators bound to our hash table. When we have iterators in the
  * middle of a rehashing we can't mess with the two hash tables otherwise
@@ -357,8 +378,10 @@ static void _dictRehashStep(dict *d) {
 int dictAdd(dict *d, void *key, void *val)
 {
     dictEntry *entry = dictAddRaw(d,key);
-
+    //如果没有添加成功 返回错误
     if (!entry) return DICT_ERR;
+
+    //设置值。
     dictSetVal(d, entry, val);
     return DICT_OK;
 }

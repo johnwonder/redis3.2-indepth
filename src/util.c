@@ -450,6 +450,12 @@ int d2string(char *buf, size_t len, double value) {
     return len;
 }
 
+/*
+    生成redis的 Run ID,
+    一个sha1大小的随机数，用于标识Redis的给定执行，
+    因此，如果您正在与具有run_id == a的实例交谈，
+    并且您重新连接并且它具有run_id == B，您可以确定它是一个不同的实例或它被重新启动。
+*/
 /* Generate the Redis "Run ID", a SHA1-sized random number that identifies a
  * given execution of Redis, so that if you are talking with an instance
  * having run_id == A, and you reconnect and it has run_id == B, you can be
@@ -540,9 +546,12 @@ sds getAbsolutePath(char *filename) {
     sds relpath = sdsnew(filename);
 
     relpath = sdstrim(relpath," \r\n\t");
+    //如果文件名称第一字符是/ 那么已经是绝对路径
     if (relpath[0] == '/') return relpath; /* Path is already absolute. */
 
     /* If path is relative, join cwd and relative path. */
+    //getcwd 函数是用于获取当前工作目录（Current Working Directory）的标准库函数。
+    //在编程中，特别是使用C语言或与之相关的语言（如C++）时，getcwd 函数常被用来获取并存储当前程序所在的工作目录路径。
     if (getcwd(cwd,sizeof(cwd)) == NULL) {
         sdsfree(relpath);
         return NULL;

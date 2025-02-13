@@ -47,7 +47,7 @@ size_t getStringObjectSdsUsedMemory(robj *o) {
     serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
     switch(o->encoding) {
     case OBJ_ENCODING_RAW: return sdsZmallocSize(o->ptr);
-    case OBJ_ENCODING_EMBSTR: return zmalloc_size(o)-sizeof(robj);
+    case OBJ_ENCODING_EMBSTR: return zmalloc_size(o)-sizeof(robj); //需减去robj本身占用的内存
     default: return 0; /* Just integer encoding for now. */
     }
 }
@@ -86,7 +86,7 @@ client *createClient(int fd) {
             return NULL;
         }
     }
-
+    //创建client的时候 选择第一个数据库 将client的db指针指向server.db中的第一个db
     selectDb(c,0);
     c->id = server.next_client_id++;
     c->fd = fd;
@@ -1150,6 +1150,7 @@ int processInlineBuffer(client *c) {
         c->argv = zmalloc(sizeof(robj*)*argc);
     }
 
+    /*为所有参数创建redis对象*/
     /* Create redis objects for all arguments. */
     for (c->argc = 0, j = 0; j < argc; j++) {
         if (sdslen(argv[j])) {
@@ -1447,6 +1448,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     c->lastinteraction = server.unixtime;
     //todo 如果当前client是master 那么偏移量增加
     if (c->flags & CLIENT_MASTER) c->reploff += nread;
+    //增加网络字节数
     server.stat_net_input_bytes += nread;
     if (sdslen(c->querybuf) > server.client_max_querybuf_len) {
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();

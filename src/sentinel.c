@@ -227,12 +227,22 @@ typedef struct sentinelRedisInstance {
 
 /* Main state. */
 struct sentinelState {
-    char myid[CONFIG_RUN_ID_SIZE+1]; /* This sentinel ID. */
-    uint64_t current_epoch;         /* Current epoch. */
+    char myid[CONFIG_RUN_ID_SIZE+1]; /* This sentinel ID. sentinel ID */
+    uint64_t current_epoch;         
+    /* Current epoch.  在Redis Sentinel中，current_epoch（当前纪元）是一个非常重要的概念，
+    它用于实现故障转移和领导者选举。
+    每个哨兵节点（Sentinel）都维护了一个current_epoch值，这个值代表了当前的视图或状态
+    只有当哨兵节点的current_epoch值大于其他哨兵节点时，它才能成为领导者，并对主服务器进行操作
+    */
     dict *masters;      /* Dictionary of master sentinelRedisInstances.
                            Key is the instance name, value is the
                            sentinelRedisInstance structure pointer. */
-    int tilt;           /* Are we in TILT mode? */
+    int tilt;           
+    /*
+     Are we in TILT mode? 
+    Redis Sentinel 的 TILT 模式是一种保护模式，当 Sentinel 检测到系统时间出现严重问题时，会进入此模式。
+    在 TILT 模式下，Sentinel 会限制其操作，以避免在时间不准确的情况下做出错误的决策
+    */
     int running_scripts;    /* Number of scripts in execution right now. */
     mstime_t tilt_start_time;       /* When TITL started. */
     mstime_t previous_time;         /* Last time we ran the time handler. */
@@ -242,7 +252,7 @@ struct sentinelState {
     int announce_port;  /* Port that is gossiped to other sentinels if
                            non zero. */
     unsigned long simfailure_flags; /* Failures simulation. */
-    int deny_scripts_reconfig; /* Allow SENTINEL SET ... to change script
+    int deny_scripts_reconfig; /* 允许哨兵设置…在运行时更改脚本路径 Allow SENTINEL SET ... to change script
                                   paths at runtime? */
 } sentinel;
 
@@ -445,6 +455,7 @@ void initSentinelConfig(void) {
     server.port = REDIS_SENTINEL_PORT;
 }
 
+/* server.c中调用 */
 /* Perform the Sentinel mode initialization. */
 void initSentinel(void) {
     unsigned int j;
@@ -475,6 +486,7 @@ void initSentinel(void) {
     memset(sentinel.myid,0,sizeof(sentinel.myid));
 }
 
+/*当服务在哨兵模式下运行时 被调用 */
 /* This function gets called when the server is in Sentinel mode, started,
  * loaded the configuration, and is ready for normal operations. */
 void sentinelIsRunning(void) {
@@ -498,6 +510,7 @@ void sentinelIsRunning(void) {
         if (sentinel.myid[j] != 0) break;
 
     if (j == CONFIG_RUN_ID_SIZE) {
+        //重新生成id
         /* Pick ID and presist the config. */
         getRandomHexChars(sentinel.myid,CONFIG_RUN_ID_SIZE);
         sentinelFlushConfig();
@@ -506,6 +519,7 @@ void sentinelIsRunning(void) {
     /* Log its ID to make debugging of issues simpler. */
     serverLog(LL_WARNING,"Sentinel ID is %s", sentinel.myid);
 
+    /* 在启动时 我们想要生成一个monitor事件 为每个配置的master */
     /* We want to generate a +monitor event for every configured master
      * at startup. */
     sentinelGenerateInitialMonitorEvents();

@@ -323,7 +323,9 @@ eoferr: /* unexpected end of file is handled here with a fatal exit */
 
 /* RDB check main: called form redis.c when Redis is executed with the
  * redis-check-rdb alias.
+ * 当Redis以Redis -check-rdb别名执行时，从Redis.c调用
  *
+ *  该函数永远不会返回，但会根据成功（RDB正常）或错误（RDB损坏）的状态码退出。
  * The function never returns, but exits with the status code according
  * to success (RDB is sane) or error (RDB is corrupted). */
 int redis_check_rdb_main(int argc, char **argv) {
