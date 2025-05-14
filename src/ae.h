@@ -88,6 +88,9 @@ typedef struct aeTimeEvent {
     struct aeTimeEvent *next; /*存储下一个时间事件*/
 } aeTimeEvent;
 
+/*
+ 被触发的事件对象
+*/
 /* A fired event */
 typedef struct aeFiredEvent {
     int fd; /*文件描述符*/
@@ -103,9 +106,9 @@ typedef struct aeEventLoop {
     time_t lastTime;     /* Used to detect system clock skew 用于检测系统时钟偏差 */
     aeFileEvent *events; /* Registered events */ /*存储监听的文件事件*/
     aeFiredEvent *fired; /* Fired events */ /*存储待处理的文件事件*/
-    aeTimeEvent *timeEventHead; /*存储监听的时间事件*/
+    aeTimeEvent *timeEventHead; /*存储监听的时间事件 头部指针*/
     int stop;
-    void *apidata; /* This is used for polling API specific data */ /*针对每个多路复用api不一样*/
+    void *apidata; /* void指针 This is used for polling API specific data */ /*针对每个多路复用api不一样*/
     aeBeforeSleepProc *beforesleep;
 } aeEventLoop;
 

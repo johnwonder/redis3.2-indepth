@@ -56,7 +56,7 @@ void freeClientMultiState(client *c) {
 void queueMultiCommand(client *c) {
     multiCmd *mc;
     int j;
-
+    //使用内存重分配
     c->mstate.commands = zrealloc(c->mstate.commands,
             sizeof(multiCmd)*(c->mstate.count+1));
     mc = c->mstate.commands+c->mstate.count;
@@ -84,14 +84,20 @@ void flagTransaction(client *c) {
 }
 
 void multiCommand(client *c) {
+    //如果已经是MULTI 那再执行MULTI的时候就会报如下错误
     if (c->flags & CLIENT_MULTI) {
         addReplyError(c,"MULTI calls can not be nested");
         return;
     }
+    //标记当前客户端
     c->flags |= CLIENT_MULTI;
+    //回复OK
     addReply(c,shared.ok);
 }
 
+/*
+ 忽略命令
+*/
 void discardCommand(client *c) {
     if (!(c->flags & CLIENT_MULTI)) {
         addReplyError(c,"DISCARD without MULTI");
@@ -116,6 +122,7 @@ void execCommand(client *c) {
     robj **orig_argv;
     int orig_argc;
     struct redisCommand *orig_cmd;
+
     int must_propagate = 0; /* Need to propagate MULTI/EXEC to AOF / slaves? */
 
     if (!(c->flags & CLIENT_MULTI)) {
@@ -123,12 +130,19 @@ void execCommand(client *c) {
         return;
     }
 
+    /*
+        检查是否需要终止exec 
+        
+    */
     /* Check if we need to abort the EXEC because:
-     * 1) Some WATCHed key was touched.
-     * 2) There was a previous error while queueing commands.
+     * 1) Some WATCHed key was touched. 一些被观察的key 被触发了
+     * 2) There was a previous error while queueing commands. 当入队命令的时候有一个错误
+     * 
      * A failed EXEC in the first case returns a multi bulk nil object
      * (technically it is not an error but a special behavior), while
      * in the second an EXECABORT error is returned. */
+    //当
+    //
     if (c->flags & (CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC)) {
         addReply(c, c->flags & CLIENT_DIRTY_EXEC ? shared.execaborterr :
                                                   shared.nullmultibulk);
@@ -136,6 +150,7 @@ void execCommand(client *c) {
         goto handle_monitor;
     }
 
+    /* 执行所有入队的命令 */
     /* Exec all the queued commands */
     unwatchAllKeys(c); /* Unwatch ASAP otherwise we'll waste CPU cycles */
     /*先用orig 指针指向*/
@@ -143,11 +158,16 @@ void execCommand(client *c) {
     orig_argc = c->argc;
     orig_cmd = c->cmd;
     addReplyMultiBulkLen(c,c->mstate.count);
+
+    //遍历命令列表，
     for (j = 0; j < c->mstate.count; j++) {
         c->argc = c->mstate.commands[j].argc;
         c->argv = c->mstate.commands[j].argv;
+
+
         c->cmd = c->mstate.commands[j].cmd;
 
+        /*如果不是传播 且 不是只读命令 那就 执行传播命令 */
         /* Propagate a MULTI request once we encounter the first write op.
          * This way we'll deliver the MULTI/..../EXEC block as a whole and
          * both the AOF and the replication link will have the same consistency
@@ -199,6 +219,7 @@ typedef struct watchedKey {
     redisDb *db;
 } watchedKey;
 
+/* 观察特定的 key */
 /* Watch for the specified key */
 void watchForKey(client *c, robj *key) {
     list *clients = NULL;
@@ -206,6 +227,7 @@ void watchForKey(client *c, robj *key) {
     listNode *ln;
     watchedKey *wk;
 
+    /*检查是否已经观察了这个key*/
     /* Check if we are already watching for this key */
     listRewind(c->watched_keys,&li);
     while((ln = listNext(&li))) {
@@ -221,11 +243,14 @@ void watchForKey(client *c, robj *key) {
         incrRefCount(key);
     }
     listAddNodeTail(clients,c);
+    /* 添加新的key到 被这个客户端观察的key列表中 */
     /* Add the new key to the list of keys watched by this client */
     wk = zmalloc(sizeof(*wk));
     wk->key = key;
     wk->db = c->db;
+    //增加key的引用
     incrRefCount(key);
+    //把wk放入watched_keys列表
     listAddNodeTail(c->watched_keys,wk);
 }
 
@@ -235,8 +260,11 @@ void unwatchAllKeys(client *c) {
     listIter li;
     listNode *ln;
 
+
     if (listLength(c->watched_keys) == 0) return;
     listRewind(c->watched_keys,&li);
+    
+    /*遍历所有keys*/
     while((ln = listNext(&li))) {
         list *clients;
         watchedKey *wk;

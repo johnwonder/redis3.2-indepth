@@ -109,6 +109,7 @@ static inline size_t sdsavail(const sds s) {
         }
         case SDS_TYPE_8: {
             SDS_HDR_VAR(8,s);
+            //分配的减去现有使用的
             return sh->alloc - sh->len;
         }
         case SDS_TYPE_16: {

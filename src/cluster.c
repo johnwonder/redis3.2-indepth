@@ -460,6 +460,8 @@ void clusterInit(void) {
     } else {
         int j;
 
+        //遍历集群 文件描述符数量 一个个创建文件事件
+        //保存在eventLoop->events 数组里
         for (j = 0; j < server.cfd_count; j++) {
             if (aeCreateFileEvent(server.el, server.cfd[j], AE_READABLE,
                 clusterAcceptHandler, NULL) == AE_ERR)

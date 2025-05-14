@@ -69,13 +69,15 @@ void memtest_progress_start(char *title, int pass) {
     printf("Please keep the test running several minutes per GB of memory.\n");
     printf("Also check http://www.memtest86.com/ and http://pyropus.ca/software/memtester/");
     printf("\x1b[H\x1b[2K");          /* Cursor home, clear current line.  */
-    printf("%s [%d]\n", title, pass); /* Print title. */
+    printf("%s [%d]\n", title, pass); /* 打印标题 Print title. */
     progress_printed = 0;
     progress_full = ws.ws_col*(ws.ws_row-3);
+    //立即输出
     fflush(stdout);
 }
 
 void memtest_progress_end(void) {
+    /**/
     printf("\x1b[H\x1b[2J");    /* Cursor home, clear screen. */
 }
 
@@ -87,22 +89,31 @@ void memtest_progress_step(size_t curr, size_t size, char c) {
     fflush(stdout);
 }
 
+/*测试 地址 是否好*/
 /* Test that addressing is fine. Every location is populated with its own
  * address, and finally verified. This test is very fast but may detect
  * ASAP big issues with the memory subsystem. */
+/*
+可能会尽快发现内存子系统的大问题。
+*/
 int memtest_addressing(unsigned long *l, size_t bytes, int interactive) {
+    //字节总数 除以 unsigned long 所占用的字节
     unsigned long words = bytes/sizeof(unsigned long);
     unsigned long j, *p;
 
     /* Fill */
+    /*填充地址*/
     p = l;
     for (j = 0; j < words; j++) {
+        //地址转换为
         *p = (unsigned long)p;
         p++;
+        //65536 64mb
         if ((j & 0xffff) == 0 && interactive)
-            memtest_progress_step(j,words*2,'A');
+            memtest_progress_step(j,words*2,'A'); //
     }
     /* Test */
+    /*测试*/
     p = l;
     for (j = 0; j < words; j++) {
         if (*p != (unsigned long)p) {
@@ -119,7 +130,7 @@ int memtest_addressing(unsigned long *l, size_t bytes, int interactive) {
     }
     return 0;
 }
-
+/*sa*/
 /* Fill words stepping a single page at every write, so we continue to
  * touch all the pages in the smallest amount of time reducing the
  * effectiveness of caches, and making it hard for the OS to transfer
@@ -229,6 +240,9 @@ int memtest_compare_times(unsigned long *m, size_t bytes, int pass, int times,
     return errors;
 }
 
+/*
+测试指定的内存。
+*/
 /* Test the specified memory. The number of bytes must be multiple of 4096.
  * If interactive is true the program exists with an error and prints
  * ASCII arts to show progresses. Instead when interactive is 0, it can
@@ -238,6 +252,7 @@ int memtest_test(unsigned long *m, size_t bytes, int passes, int interactive) {
     int pass = 0;
     int errors = 0;
 
+    //当pass不等于passes时
     while (pass != passes) {
         pass++;
 
@@ -334,23 +349,32 @@ int memtest_preserving_test(unsigned long *m, size_t bytes, int passes) {
 
 /* Perform an interactive test allocating the specified number of megabytes. */
 void memtest_alloc_and_test(size_t megabytes, int passes) {
+    //这里转换成mb
     size_t bytes = megabytes*1024*1024;
+    //分配空间
     unsigned long *m = malloc(bytes);
 
     if (m == NULL) {
+        //如果分配失败，那么直接提示错误并退出
         fprintf(stderr,"Unable to allocate %zu megabytes: %s",
             megabytes, strerror(errno));
         exit(1);
     }
     memtest_test(m,bytes,passes,1);
+    //释放空间
     free(m);
 }
 
 void memtest(size_t megabytes, int passes) {
+    //TIOCGWINSZ 是一个 ioctl 系统调用的命令，用于获取与终端关联的窗口大小‌。
+    //在 Unix/Linux 系统中，TIOCGWINSZ 命令通过 ioctl 函数调用，可以获取当前终端窗口的行数和列数。这个信息通常被保存在一个 winsize 结构中，
+    //该结构包含了窗口的行数（ws_row）和列数（ws_col），以及水平像素大小（ws_xpixel，通常未使用）和垂直像素大小（ws_ypixel，通常未使用）。
     if (ioctl(1, TIOCGWINSZ, &ws) == -1) {
+        //如果获取失败 ，那就自定义
         ws.ws_col = 80;
         ws.ws_row = 20;
     }
+    //passes 50
     memtest_alloc_and_test(megabytes,passes);
     printf("\nYour memory passed this test.\n");
     printf("Please if you are still in doubt use the following two tools:\n");

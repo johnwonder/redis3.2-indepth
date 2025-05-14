@@ -719,6 +719,10 @@ void unblockClientWaitingData(client *c) {
     }
 }
 
+/*
+如果指定的键有客户端阻塞等待列表推送
+这个函数将把键引用放入server.ready_keys列表。
+*/
 /* If the specified key has clients blocked waiting for list pushes, this
  * function will put the key reference into the server.ready_keys list.
  * Note that db->ready_keys is a hash table that allows us to avoid putting
@@ -741,6 +745,7 @@ void signalListAsReady(redisDb *db, robj *key) {
     rl->db = db;
     incrRefCount(key);
     //添加到ready_keys末尾
+    //handleClientsBlockedOnLists 函数中会使用
     listAddNodeTail(server.ready_keys,rl);
 
     /* We also add the key in the db->ready_keys dictionary in order
@@ -825,6 +830,7 @@ int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb 
  * a MULTI/EXEC block, or a Lua script, terminated its execution after
  * being called by a client.
  *
+ * 至少有一个客户端被阻塞，并且通过某种PUSH操作接收到至少一个新元素的所有键都被累积到server.ready_keys列表
  * All the keys with at least one client blocked that received at least
  * one new element via some PUSH operation are accumulated into
  * the server.ready_keys list. This function will run the list and will
@@ -836,19 +842,25 @@ void handleClientsBlockedOnLists(void) {
     while(listLength(server.ready_keys) != 0) {
         list *l;
 
+        /*
+         局部保存当前的ready_keys
+
+         这样，当我们运行旧的列表时，我们可以自由地调用signalListAsReady()，
+         在处理阻塞到BRPOPLPUSH的客户端时它可以将新元素推入server.ready_keys。
+        */
         /* Point server.ready_keys to a fresh list and save the current one
          * locally. This way as we run the old list we are free to call
          * signalListAsReady() that may push new elements in server.ready_keys
          * when handling clients blocked into BRPOPLPUSH. */
-        l = server.ready_keys;
-        server.ready_keys = listCreate();
+        l = server.ready_keys; //获取ready_keys列表
+        server.ready_keys = listCreate(); //重新创建ready_keys列表
 
         while(listLength(l) != 0) {
             //取出链表中的第一个键
             listNode *ln = listFirst(l);
             readyList *rl = ln->value;
 
-            //从ready_keys删除这个key 
+            //从对应键的数据库的ready_keys删除这个key 
             //又可以调用signalListAsReady了
             /* First of all remove this key from db->ready_keys so that
              * we can safely call signalListAsReady() against this key. */
@@ -856,11 +868,13 @@ void handleClientsBlockedOnLists(void) {
 
             /* If the key exists and it's a list, serve blocked clients
              * with data. */
-            //从数据库里找key对应的
+            //从数据库里找key对应的对象
             robj *o = lookupKeyWrite(rl->db,rl->key);
+            //对象不为空 且为list类型
             if (o != NULL && o->type == OBJ_LIST) {
                 dictEntry *de;
 
+                /* 以阻塞这个key的相同顺序 应答客户端 */
                 /* We serve clients in the same order they blocked for
                  * this key, from the first blocked to the last. */
                 de = dictFind(rl->db->blocking_keys,rl->key);

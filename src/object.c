@@ -37,13 +37,16 @@
 #endif
 
 robj *createObject(int type, void *ptr) {
+
+    //还能通过这种 直接通过变量名来算sizeof
     robj *o = zmalloc(sizeof(*o));
     o->type = type;
     /*默认是RAW*/
     o->encoding = OBJ_ENCODING_RAW;
-    o->ptr = ptr; //ptr指针
+    o->ptr = ptr; //ptr指针 指向sds
     o->refcount = 1;
 
+    /*设置LRU为当前lruclock（分钟分辨率）*/
     /* Set the LRU to the current lruclock (minutes resolution). */
     o->lru = LRU_CLOCK();
     return o;
@@ -58,6 +61,10 @@ robj *createRawStringObject(const char *ptr, size_t len) {
     return createObject(OBJ_STRING,sdsnewlen(ptr,len));
 }
 
+/*
+ 创建一个编码为OBJ_ENCODING_EMBSTR的字符串对象，
+ 这是一个分配在相同块的不能被修改的sds字符串，
+*/
 /* Create a string object with encoding OBJ_ENCODING_EMBSTR, that is
  * an object where the sds string is actually an unmodifiable string
  * allocated in the same chunk as the object itself. */
@@ -66,13 +73,14 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     //这里直接使用sdshdr8类型了
     //embstr：一次 malloc 分配 robj + sdshdr8 + sdslen + \0
     robj *o = zmalloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
+    //指针的妙用 + 1 因为o是robj类型的指针  +1
     struct sdshdr8 *sh = (void*)(o+1);
 
-    o->type = OBJ_STRING;
-    o->encoding = OBJ_ENCODING_EMBSTR;
-    o->ptr = sh+1;
-    o->refcount = 1;
-    o->lru = LRU_CLOCK();
+    o->type = OBJ_STRING; //string类型
+    o->encoding = OBJ_ENCODING_EMBSTR; //编码
+    o->ptr = sh+1; //这里+1 就是走到了char[] 柔性数组的位置
+    o->refcount = 1; //引用计数
+    o->lru = LRU_CLOCK(); //lru时钟
 
     //1.embstr 类型字符串如果要修改，会先被转换为 raw
     //2. embstr 类型里的 sdshdr8，预留空间会被显式设置为 0，即 avail = hdr->alloc - hdr->len 的结果为 0，
@@ -81,6 +89,7 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     sh->alloc = len;
     sh->flags = SDS_TYPE_8;
     if (ptr) {
+        //拷贝ptr 内容到buf中
         memcpy(sh->buf,ptr,len);
         sh->buf[len] = '\0';
     } else {
@@ -92,21 +101,24 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
 /*
 如果总体超出了 64 字节，Redis 认为它是一个大字符串对象，不再使用 emdstr 编码存储，而会使用 raw 编码。而之所以选择了 64 字节，应该是因为大部分情况下 CPU Cache Line 也是 64 字节，
 刚好 CPU 一次访问内存就可以读到数据（能够更好利用 CPU 缓存）
-所以当内存分配器分配了 64 字节空间时，那这个字符串的长度最大可以是多少呢？这个长度就是 44。那为什么是 44 呢？因为 64 - 16 - 3 - 1 == 44。前面我们提到 sds 中的 buf 字节数组是以字节 \0 结尾的字符串，所以除了 redisObject头（16）、sdshdr8（3）、\0 结尾（1），就剩下44个字节了。所以当字符串长度小于等于 44 个字节的时候，
+所以当内存分配器分配了 64 字节空间时，那这个字符串的长度最大可以是多少呢？
+这个长度就是 44。那为什么是 44 呢？因为 64 - 16 - 3 - 1 == 44。前面我们提到 sds 中的 buf 字节数组是以字节 \0 结尾的字符串，
+所以除了 redisObject头（16）、sdshdr8（3）、\0 结尾（1），就剩下44个字节了。所以当字符串长度小于等于 44 个字节的时候，
 我们可以将 robj 和 sds 紧凑的存储在一起，使用 embstr 编码格式，来提升性能（内存 和 效率都
 */
 /* Create a string object with EMBSTR encoding if it is smaller than
  * REIDS_ENCODING_EMBSTR_SIZE_LIMIT, otherwise the RAW encoding is
  * used.
- *
+ * 这里的39 是错的 应该是44
  * The current limit of 39 is chosen so that the biggest string object
  * we allocate as EMBSTR will still fit into the 64 byte arena of jemalloc. */
 #define OBJ_ENCODING_EMBSTR_SIZE_LIMIT 44
 robj *createStringObject(const char *ptr, size_t len) {
+    //字符数小于44的时候 会创建EmbeddedString
     if (len <= OBJ_ENCODING_EMBSTR_SIZE_LIMIT)
         return createEmbeddedStringObject(ptr,len);
     else
-        return createRawStringObject(ptr,len);
+        return createRawStringObject(ptr,len); //创建一个原始字符串
 }
 
 robj *createStringObjectFromLongLong(long long value) {
@@ -477,6 +489,7 @@ robj *tryObjectEncoding(robj *o) {
 robj *getDecodedObject(robj *o) {
     robj *dec;
 
+    /*raw 或者embstr*/
     if (sdsEncodedObject(o)) {
         incrRefCount(o);
         return o;

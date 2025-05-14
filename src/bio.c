@@ -111,10 +111,14 @@ void bioInit(void) {
     while (stacksize < REDIS_THREAD_STACK_SIZE) stacksize *= 2;
     pthread_attr_setstacksize(&attr, stacksize);
 
+    /*
+    准备好生成我们的线程。我们使用线程函数接受的单个参数来传递线程负责的作业ID
+    */
     /* Ready to spawn our threads. We use the single argument the thread
      * function accepts in order to pass the job ID the thread is
      * responsible of. */
     for (j = 0; j < BIO_NUM_OPS; j++) {
+        //BIO_NUM_OPS =2
         void *arg = (void*)(unsigned long) j;
         if (pthread_create(&thread,&attr,bioProcessBackgroundJobs,arg) != 0) {
             serverLog(LL_WARNING,"Fatal: Can't initialize Background Jobs.");
@@ -167,6 +171,9 @@ void *bioProcessBackgroundJobs(void *arg) {
     while(1) {
         listNode *ln;
 
+        /*
+        循环总是从锁hold开始
+        */
         /* The loop always starts with the lock hold. */
         if (listLength(bio_jobs[type]) == 0) {
             pthread_cond_wait(&bio_condvar[type],&bio_mutex[type]);
@@ -189,6 +196,10 @@ void *bioProcessBackgroundJobs(void *arg) {
         }
         zfree(job);
 
+        /*
+         在重复循环之前再次锁定
+         如果没有作业要处理，我们将在pthread_cond_wait（）中再次阻塞
+        */
         /* Lock again before reiterating the loop, if there are no longer
          * jobs to process we'll block again in pthread_cond_wait(). */
         pthread_mutex_lock(&bio_mutex[type]);

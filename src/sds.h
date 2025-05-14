@@ -88,19 +88,19 @@ struct __attribute__ ((__packed__)) sdshdr8 {
 };
 struct __attribute__ ((__packed__)) sdshdr16 {
     uint16_t len; /* used 已使用长度，用2字节存储  */
-    uint16_t alloc; /* excluding the header and null terminator */
+    uint16_t alloc; /* 为buf分配的总长度（是不包含header和NULL结束符的） excluding the header and null terminator */
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
     char buf[];
 };
 struct __attribute__ ((__packed__)) sdshdr32 {
     uint32_t len; /* used  已使用长度，用4字节存储  */
-    uint32_t alloc; /* excluding the header and null terminator */
+    uint32_t alloc; /* 为buf分配的总长度（是不包含header和NULL结束符的） excluding the header and null terminator */
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
     char buf[];
 };
 struct __attribute__ ((__packed__)) sdshdr64 {
     uint64_t len; /* used 已使用长度，用8字节存储  */
-    uint64_t alloc; /* excluding the header and null terminator */
+    uint64_t alloc; /* 为buf分配的总长度（是不包含header和NULL结束符的） excluding the header and null terminator */
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
     char buf[];
 };
@@ -148,6 +148,7 @@ static inline size_t sdsavail(const sds s) {
         }
         case SDS_TYPE_8: {
             SDS_HDR_VAR(8,s);
+            //alloc 减去 当前长度 就是剩余的空间
             return sh->alloc - sh->len;
         }
         case SDS_TYPE_16: {
@@ -167,6 +168,7 @@ static inline size_t sdsavail(const sds s) {
 }
 
 static inline void sdssetlen(sds s, size_t newlen) {
+    //这边获取的是字符不是指针
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
         case SDS_TYPE_5:

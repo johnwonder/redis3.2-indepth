@@ -69,6 +69,11 @@ typedef struct aofrwblock {
     char buf[AOF_RW_BUF_BLOCK_SIZE];
 } aofrwblock;
 
+/*
+    这个函数释放旧的AOF 重写缓冲区，并且初始化一个新的。
+    如果测试server.aof_rewrite_buf_blocks等于NULL
+    那么就可以用于第一次初始化
+*/
 /* This function free the old AOF rewrite buffer if needed, and initialize
  * a fresh new one. It tests for server.aof_rewrite_buf_blocks equal to NULL
  * so can be used for the first initialization as well. */
@@ -530,6 +535,9 @@ sds catAppendOnlyExpireAtCommand(sds buf, struct redisCommand *cmd, robj *key, r
     return buf;
 }
 
+/*
+ 在 propagate 方法中调用
+*/
 void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int argc) {
     sds buf = sdsempty();
     robj *tmpargv[3];
@@ -580,6 +588,7 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
         buf = catAppendOnlyGenericCommand(buf,argc,argv);
     }
 
+    /*追加到AOF缓存中，这将在重新进入事件循环之前在磁盘上刷新 因此，在客户端得到关于所执行操作的肯定回复之前*/
     /* Append to the AOF buffer. This will be flushed on disk just before
      * of re-entering the event loop, so before the client will get a
      * positive reply about the operation performed. */

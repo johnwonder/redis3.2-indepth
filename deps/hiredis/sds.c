@@ -77,7 +77,10 @@ static inline char sdsReqType(size_t string_size) {
  *
  * You can print the string with printf() as there is an implicit \0 at the
  * end of the string. However the string is binary safe and can contain
- * \0 characters in the middle, as the length is stored in the sds header. */
+ * \0 characters in the middle, as the length is stored in the sds header. 
+ * 然而，字符串是二进制安全的，并且可以在中间包含\0字符，因为长度存储在sds标头中
+ * 
+ * */
 sds sdsnewlen(const void *init, size_t initlen) {
     void *sh;
     sds s;
@@ -101,6 +104,7 @@ sds sdsnewlen(const void *init, size_t initlen) {
         }
         case SDS_TYPE_8: {
             SDS_HDR_VAR(8,s);
+            //初始化长度和 分配长度一样
             sh->len = initlen;
             sh->alloc = initlen;
             *fp = type;
@@ -108,6 +112,7 @@ sds sdsnewlen(const void *init, size_t initlen) {
         }
         case SDS_TYPE_16: {
             SDS_HDR_VAR(16,s);
+            //初始化长度和 分配长度一样
             sh->len = initlen;
             sh->alloc = initlen;
             *fp = type;
@@ -115,6 +120,7 @@ sds sdsnewlen(const void *init, size_t initlen) {
         }
         case SDS_TYPE_32: {
             SDS_HDR_VAR(32,s);
+            //初始化长度和 分配长度一样
             sh->len = initlen;
             sh->alloc = initlen;
             *fp = type;
@@ -122,6 +128,7 @@ sds sdsnewlen(const void *init, size_t initlen) {
         }
         case SDS_TYPE_64: {
             SDS_HDR_VAR(64,s);
+            //初始化长度和 分配长度一样
             sh->len = initlen;
             sh->alloc = initlen;
             *fp = type;
@@ -143,6 +150,7 @@ sds sdsempty(void) {
 /* Create a new sds string starting from a null terminated C string. */
 sds sdsnew(const char *init) {
     size_t initlen = (init == NULL) ? 0 : strlen(init);
+    //当前初始化长度为字符串的长度
     return sdsnewlen(init, initlen);
 }
 
@@ -226,6 +234,7 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
          * and can't use realloc */
         newsh = s_malloc(hdrlen+newlen+1);
         if (newsh == NULL) return NULL;
+        //把老的柔性数组拷贝到新的柔性数组地址上
         memcpy((char*)newsh+hdrlen, s, len+1);
         s_free(sh);
         s = (char*)newsh+hdrlen;

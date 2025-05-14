@@ -169,6 +169,9 @@ sds sdsnewlen(const void *init, size_t initlen) {
 
 /* Create an empty (zero length) sds string. Even in this case the string
  * always has an implicit null term. */
+/*
+即使在这种情况下，字符串也总是有一个隐式的空项
+*/
 sds sdsempty(void) {
     return sdsnewlen("",0);
 }
@@ -240,6 +243,7 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
     char type, oldtype = s[-1] & SDS_TYPE_MASK;
     int hdrlen;
 
+    /* 如果 有足够的空间剩余 就直接返回*/
     /* Return ASAP if there is enough space left. */
     if (avail >= addlen) return s;
 

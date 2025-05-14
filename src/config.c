@@ -650,6 +650,7 @@ loaderr:
     exit(1);
 }
 
+/*从指定的文件名称加载服务器配置*/
 /* Load the server configuration from the specified filename.
  * The function appends the additional configuration directives stored
  * in the 'options' string to the config file before loading.
@@ -747,10 +748,13 @@ void configSetCommand(client *c) {
         zfree(server.masterauth);
         server.masterauth = ((char*)o->ptr)[0] ? zstrdup(o->ptr) : NULL;
     } config_set_special_field("maxclients") {
-        int orig_value = server.maxclients;
 
+        //如果是最多客户端的参数
+        int orig_value = server.maxclients;
+        //转换成数字
         if (getLongLongFromObject(o,&ll) == C_ERR || ll < 1) goto badfmt;
 
+        /*尝试 检查操作系统是否支持这么多文件描述符 */
         /* Try to check if the OS is capable of supporting so many FDs. */
         server.maxclients = ll;
         if (ll > orig_value) {

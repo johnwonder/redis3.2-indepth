@@ -2,7 +2,7 @@ This README is just a fast *quick start* document. You can find more detailed do
 
 What is Redis?
 --------------
-
+redis经常被当做 数据结构 服务器。这意味着Redis通过一组命令提供对可变数据结构的访问，这些命令使用带有TCP套接字和简单协议的*服务器-客户端*模型发送
 Redis is often referred as a *data structures* server. What this means is that Redis provides access to mutable data structures via a set of commands, which are sent using a *server-client* model with TCP sockets and a simple protocol. So different processes can query and modify the same data structures in a shared way.
 
 Data structures implemented into Redis have a few special properties:
@@ -11,6 +11,7 @@ Data structures implemented into Redis have a few special properties:
 * Implementation of data structures stress on memory efficiency, so data structures inside Redis will likely use less memory compared to the same data structure modeled using an high level programming language.
 * Redis offers a number of features that are natural to find in a database, like replication, tunable levels of durability, cluster, high availability.
 
+另一个好的例子是把Redis看成memcached的复杂版本，操作不仅仅是set和get,
 Another good example is to think of Redis as a more complex version of memcached, where the operations are not just SETs and GETs, but operations to work with complex data types like Lists, Sets, ordered data structures, and so forth.
 
 If you want to know more, this is a list of selected starting points:
@@ -189,3 +190,6 @@ Enjoy!
 
 [1]: https://github.com/antirez/redis/blob/unstable/COPYING
 [2]: https://github.com/antirez/redis/blob/unstable/CONTRIBUTING
+
+
+

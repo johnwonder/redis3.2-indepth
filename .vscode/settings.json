@@ -26,7 +26,11 @@
         "memory": "c",
         "type_traits": "c",
         "locale.h": "c",
-        "cstring": "c"
+        "cstring": "c",
+        "deque": "c",
+        "format": "c",
+        "span": "c",
+        "text_encoding": "c"
     },
     "makefile.configureOnOpen": true
 }

@@ -72,12 +72,13 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
 
     if ((eventLoop = zmalloc(sizeof(*eventLoop))) == NULL) goto err;
     eventLoop->events = zmalloc(sizeof(aeFileEvent)*setsize);
+    //为触发事件分配空间
     eventLoop->fired = zmalloc(sizeof(aeFiredEvent)*setsize);
     if (eventLoop->events == NULL || eventLoop->fired == NULL) goto err;
     eventLoop->setsize = setsize;
     eventLoop->lastTime = time(NULL);
     eventLoop->timeEventHead = NULL;
-    eventLoop->timeEventNextId = 0;
+    eventLoop->timeEventNextId = 0; //默认是0
     eventLoop->stop = 0;
     //最大文件描述符初始化为-1
     eventLoop->maxfd = -1;
@@ -146,9 +147,11 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         errno = ERANGE;
         return AE_ERR;
     }
+    //从events数组中获取当前fd对应的fileEvent
     aeFileEvent *fe = &eventLoop->events[fd];
 
     //调用FD_SET 把当前fd设置到 eventLoop->apidata 的 wfds 或者rfds上
+    //调用平台特定api
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
         return AE_ERR;
         
@@ -208,8 +211,8 @@ static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) 
     long cur_sec, cur_ms, when_sec, when_ms;
 
     aeGetTime(&cur_sec, &cur_ms);
-    when_sec = cur_sec + milliseconds/1000;
-    when_ms = cur_ms + milliseconds%1000;
+    when_sec = cur_sec + milliseconds/1000; //比如1/1000 等于0
+    when_ms = cur_ms + milliseconds%1000; //比如1%1000 等于1
     if (when_ms >= 1000) {
         when_sec ++;
         when_ms -= 1000;
@@ -222,10 +225,11 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
         aeTimeProc *proc, void *clientData,
         aeEventFinalizerProc *finalizerProc)
 {
+    //通过timeEventNextId 
     long long id = eventLoop->timeEventNextId++;
     aeTimeEvent *te;
 
-    te = zmalloc(sizeof(*te));
+    te = zmalloc(sizeof(*te));//结构体大小
     if (te == NULL) return AE_ERR;
     te->id = id;
     aeAddMillisecondsToNow(milliseconds,&te->when_sec,&te->when_ms);
@@ -233,6 +237,8 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
     te->finalizerProc = finalizerProc;
     te->clientData = clientData;
     te->next = eventLoop->timeEventHead;
+
+    //把当前时间事件放入 链表头部
     eventLoop->timeEventHead = te;
     return id;
 }
@@ -475,12 +481,16 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
         numevents = aeApiPoll(eventLoop, tvp);
         for (j = 0; j < numevents; j++) {
+
+            //从fired数组中取出
             aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
 
             //当前触发的时候是否可读或者可写
             int mask = eventLoop->fired[j].mask;
             //fe-mask 代表这个事件本身的标志
             int fd = eventLoop->fired[j].fd;
+
+            //为当前fd 触发的事件数量
             int fired = 0; /* Number of events fired for current fd. */
 
             /**
@@ -494,7 +504,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
              * query.
              *
              * 然而，如果在掩码中设置了AE_BARRIER，我们的应用程序会要求我们执行相反的操作：
-             * 永远不要在可读事件之后触发可写事件。在这种情况下，我们反转调用。
+             * 永远不要在读事件之后触发写事件。在这种情况下，我们反转调用。
              * 例如，当我们想在beforeSleep（）钩子中做一些事情时，这很有用，比如在回复客户端之前将文件同步到磁盘
              * However if AE_BARRIER is set in the mask, our application is
              * asking us to do the reverse: never fire the writable event
@@ -516,6 +526,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
                 fired++;
             }
 
+            /*触发写事件*/
             /* Fire the writable event. */
             if (fe->mask & mask & AE_WRITABLE) {
                 if (!fired || fe->wfileProc != fe->rfileProc) {
@@ -524,6 +535,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
                 }
             }
 
+            /* 如果我们要反转 */
             /* If we have to invert the call, fire the readable event now
              * after the writable one. */
             if (invert && fe->mask & mask & AE_READABLE) {
@@ -572,7 +584,10 @@ void aeMain(aeEventLoop *eventLoop) {
         if (eventLoop->beforesleep != NULL)
             eventLoop->beforesleep(eventLoop);
 
-        /*处理所有事件*/
+        /*
+        处理所有事件 所有事件包含 文件事件和时间事件 
+        AE_ALL_EVENTS (AE_FILE_EVENTS|AE_TIME_EVENTS)
+        */
         aeProcessEvents(eventLoop, AE_ALL_EVENTS);
     }
 }

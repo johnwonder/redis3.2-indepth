@@ -129,6 +129,7 @@ int rdbSaveLen(rio *rdb, uint32_t len) {
     } else {
         /* Save a 32 bit len */
         buf[0] = (RDB_32BITLEN<<6);
+        //写入
         if (rdbWriteRaw(rdb,buf,1) == -1) return -1;
         len = htonl(len);
         if (rdbWriteRaw(rdb,&len,4) == -1) return -1;
@@ -345,6 +346,7 @@ ssize_t rdbSaveRawString(rio *rdb, unsigned char *s, size_t len) {
     ssize_t n, nwritten = 0;
 
     /* Try integer encoding */
+    /* 如果长度 小于等于11 那就编码为整数 */
     if (len <= 11) {
         unsigned char buf[5];
         if ((enclen = rdbTryIntegerEncoding((char*)s,len,buf)) > 0) {
@@ -362,11 +364,15 @@ ssize_t rdbSaveRawString(rio *rdb, unsigned char *s, size_t len) {
         /* Return value of 0 means data can't be compressed, save the old way */
     }
 
+    /*存储 */
     /* Store verbatim */
     if ((n = rdbSaveLen(rdb,len)) == -1) return -1;
+    //写入的字节数
     nwritten += n;
     if (len > 0) {
         if (rdbWriteRaw(rdb,s,len) == -1) return -1;
+
+        //写入的字节数
         nwritten += len;
     }
     return nwritten;
@@ -704,14 +710,17 @@ size_t rdbSavedObjectLen(robj *o) {
 int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val,
                         long long expiretime, long long now)
 {
+    /*保存过期时间*/
     /* Save the expire time */
     if (expiretime != -1) {
+        /* 如果key已经过期就忽略它 */
         /* If this key is already expired skip it */
         if (expiretime < now) return 0;
         if (rdbSaveType(rdb,RDB_OPCODE_EXPIRETIME_MS) == -1) return -1;
         if (rdbSaveMillisecondTime(rdb,expiretime) == -1) return -1;
     }
 
+    /*保存类型，key,value*/
     /* Save type, key, value */
     if (rdbSaveObjectType(rdb,val) == -1) return -1;
     if (rdbSaveStringObject(rdb,key) == -1) return -1;

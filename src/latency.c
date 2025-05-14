@@ -84,6 +84,10 @@ int THPGetAnonHugePagesSize(void) {
 
 /* ---------------------------- Latency API --------------------------------- */
 
+/*
+ 延迟监视器初始化。我们只需要创建时间序列的字典，
+ 每个时间序列都是按需创建的，以避免有一个固定的列表要维护
+*/
 /* Latency monitor initialization. We just need to create the dictionary
  * of time series, each time serie is craeted on demand in order to avoid
  * having a fixed list to maintain. */

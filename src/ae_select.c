@@ -94,6 +94,8 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
 
     //https://blog.csdn.net/llzhang_fly/article/details/120116942
     //为啥是eventLoop->maxfd+1
+    //因为待测试的描述集总是从0， 1， 2， ...开始的；所以，如果要检测的描述符为9， 10， 
+    //那么系统实际也要监测0， 1， 2， 3， 4， 5， 6,  7，8；  此时真正待测试的描述符的个数为11个， 也就是 MAX（9， 10） + 1；
     retval = select(eventLoop->maxfd+1,
                 &state->_rfds,&state->_wfds,NULL,tvp);
     //select 调用需要传入 fd 数组，需要拷贝一份到内核，高并发场景下这样的拷贝消耗的资源是惊人的。（可优化为不复制）
@@ -112,10 +114,13 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
             aeFileEvent *fe = &eventLoop->events[j];
 
             if (fe->mask == AE_NONE) continue;
+            //判断fe是否是读事件 而且 当前fd是否可以读
             if (fe->mask & AE_READABLE && FD_ISSET(j,&state->_rfds))
                 mask |= AE_READABLE;
+            //判断fe是否是写事件 而且 当前fd是否可以写
             if (fe->mask & AE_WRITABLE && FD_ISSET(j,&state->_wfds))
                 mask |= AE_WRITABLE;
+            //numevents从0开始
             eventLoop->fired[numevents].fd = j;
             eventLoop->fired[numevents].mask = mask;
             numevents++;

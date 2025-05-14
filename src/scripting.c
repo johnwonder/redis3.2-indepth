@@ -883,6 +883,9 @@ void scriptingEnableGlobalsProtection(lua_State *lua) {
     sdsfree(code);
 }
 
+/*
+    初始化脚本环境
+*/
 /* Initialize the scripting environment.
  *
  * This function is called the first time at server startup with
@@ -904,7 +907,9 @@ void scriptingInit(int setup) {
         ldbInit();
     }
 
+    //加载库
     luaLoadLibraries(lua);
+    //移除不支持的方法
     luaRemoveUnsupportedFunctions(lua);
 
     /* Initialize a dictionary we use to map SHAs to scripts.
@@ -1178,6 +1183,7 @@ int luaCreateFunction(client *c, lua_State *lua, char *funcname, robj *body) {
     return C_OK;
 }
 
+/*eval 命令中 设置*/
 /* This is the Lua script "count" hook that we use to detect scripts timeout. */
 void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
     long long elapsed;
@@ -1195,6 +1201,7 @@ void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
          * here when the EVAL command will return. */
          aeDeleteFileEvent(server.el, server.lua_caller->fd, AE_READABLE);
     }
+    //如果超时了
     if (server.lua_timedout) processEventsWhileBlocked();
     if (server.lua_kill) {
         serverLog(LL_WARNING,"Lua script killed by user with SCRIPT KILL.");
@@ -1496,6 +1503,7 @@ void ldbInit(void) {
     ldb.fd = -1;
     ldb.active = 0;
     ldb.logs = listCreate();
+    //设置释放方法
     listSetFreeMethod(ldb.logs,(void (*)(void*))sdsfree);
     ldb.children = listCreate();
     ldb.src = NULL;

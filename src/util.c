@@ -454,7 +454,7 @@ int d2string(char *buf, size_t len, double value) {
     生成redis的 Run ID,
     一个sha1大小的随机数，用于标识Redis的给定执行，
     因此，如果您正在与具有run_id == a的实例交谈，
-    并且您重新连接并且它具有run_id == B，您可以确定它是一个不同的实例或它被重新启动。
+    并且您重新连接它，并且它具有run_id == B，您可以确定它是一个不同的实例或它被重新启动。
 */
 /* Generate the Redis "Run ID", a SHA1-sized random number that identifies a
  * given execution of Redis, so that if you are talking with an instance
@@ -474,9 +474,18 @@ void getRandomHexChars(char *p, unsigned int len) {
          * the same seed with a progressive counter. For the goals of this
          * function we just need non-colliding strings, there are no
          * cryptographic security needs. */
+        /*
+        初始化种子并在计数器模式下使用SHA1
+        初始化种子并在计数器模式下使用SHA1，其中我们使用渐进计数器对相同的种子进行散列
+        对于这个函数的目标，我们只需要不冲突的字符串，不需要加密安全性
+        */
+        /*
+        /dev/random和/dev/urandom是Linux系统中提供的随机伪设备，这两个设备的任务，是提供永不为空的随机字节数据流。
+        很多解密程序与安全应用程序（如SSH Keys,SSL Keys等）需要它们提供的随机数据流
+        */
         FILE *fp = fopen("/dev/urandom","r");
         if (fp && fread(seed,sizeof(seed),1,fp) == 1)
-            seed_initialized = 1;
+            seed_initialized = 1;//读取成功后就设置为1
         if (fp) fclose(fp);
     }
 
@@ -499,6 +508,10 @@ void getRandomHexChars(char *p, unsigned int len) {
             p += copylen;
         }
     } else {
+        /*
+            如果我们不能从 /dev/urandom 读取
+
+        */
         /* If we can't read from /dev/urandom, do some reasonable effort
          * in order to create some entropy, since this function is used to
          * generate run_id and cluster instance IDs */

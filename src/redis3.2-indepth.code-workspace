@@ -8,6 +8,12 @@
 		},
 		{
 			"path": "../../cproject/testinclude"
+		},
+		{
+			"path": "../../rust/hello_world"
+		},
+		{
+			"path": "../../CPlusPlus/spdlog"
 		}
 	],
 	"settings": {
@@ -46,7 +52,57 @@
 			"format": "c",
 			"span": "c",
 			"ratio": "c",
-			"random": "c"
+			"random": "c",
+			"unistd.h": "c",
+			"codecvt": "cpp",
+			"compare": "cpp",
+			"complex": "cpp",
+			"condition_variable": "cpp",
+			"exception": "cpp",
+			"expected": "cpp",
+			"memory_resource": "cpp",
+			"optional": "cpp",
+			"*.tcc": "cpp",
+			"fstream": "cpp",
+			"future": "cpp",
+			"istream": "cpp",
+			"mutex": "cpp",
+			"new": "cpp",
+			"ostream": "cpp",
+			"semaphore": "cpp",
+			"shared_mutex": "cpp",
+			"stdexcept": "cpp",
+			"stop_token": "cpp",
+			"streambuf": "cpp",
+			"system_error": "cpp",
+			"text_encoding": "cpp",
+			"thread": "cpp",
+			"regex": "cpp",
+			"tuple": "cpp",
+			"typeinfo": "cpp",
+			"variant": "cpp",
+			"atomic": "cpp",
+			"cctype": "cpp",
+			"charconv": "cpp",
+			"cinttypes": "cpp",
+			"clocale": "cpp",
+			"cmath": "cpp",
+			"concepts": "cpp",
+			"cstdarg": "cpp",
+			"cstddef": "cpp",
+			"cstdint": "cpp",
+			"cstdio": "cpp",
+			"cwctype": "cpp",
+			"map": "cpp",
+			"set": "cpp",
+			"netfwd": "cpp",
+			"numeric": "cpp",
+			"source_location": "cpp",
+			"iomanip": "cpp",
+			"iosfwd": "cpp",
+			"iostream": "cpp",
+			"limits": "cpp",
+			"numbers": "cpp"
 		},
 		"makefile.configureOnOpen": true
 	}

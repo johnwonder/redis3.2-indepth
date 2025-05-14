@@ -2140,14 +2140,21 @@ void refreshGoodSlavesCount(void) {
 }
 
 /* ----------------------- REPLICATION SCRIPT CACHE --------------------------
+ 这段代码的目标是跟踪已经发送到每个连接的从属服务器的脚本，以便能够复制EVALSHA，而不必每次都可能将其转换为EVAL
  * The goal of this code is to keep track of scripts already sent to every
  * connected slave, in order to be able to replicate EVALSHA as it is without
  * translating it to EVAL every time it is possible.
  *
+ * 我们使用一个由hash表实现的上限集合来快速查找我们可以作为EVALSHA发送的脚本，
+ * 再加上一个链表，用于在达到最大条目数时删除最老的条目
  * We use a capped collection implemented by a hash table for fast lookup
  * of scripts we can send as EVALSHA, plus a linked list that is used for
  * eviction of the oldest entry when the max number of items is reached.
- *
+ * 
+ * 我们不关心为每个不同的slave占用不同的缓存，因为再次填充缓存的成本不是很高
+ * 此代码的目标是避免同一大脚本每秒传输大量次，从而浪费带宽和处理器速度
+ * 但是，如果我们需要从头开始重新构建缓存，这不是一个问题，
+ * 每个使用的脚本都需要传输一次才能重新出现在缓存中
  * We don't care about taking a different cache for every different slave
  * since to fill the cache again is not very costly, the goal of this code
  * is to avoid that the same big script is trasmitted a big number of times
@@ -2155,8 +2162,14 @@ void refreshGoodSlavesCount(void) {
  * if we need to rebuild the cache from scratch from time to time, every used
  * script will need to be transmitted a single time to reappear in the cache.
  *
+ * 这就是这个系统的运作方式
  * This is how the system works:
- *
+ * 1.每次新的从属连接时，我们都会刷新整个脚本缓存
+ * 2.我们只将作为EVALSHA发送给主服务器的内容作为EVALSHA发送，而不尝试将EVAL转换为专门针对从服务器的EVALSHA
+ * 3.每次我们将脚本作为EVAL传输给从服务器时，我们还将脚本的相应SHA1添加到缓存中，因为我们确信每个从服务器都知道从现在开始的脚本
+ * 4.在SCRIPT FLUSH命令中，我们将该命令复制到所有从服务器，同时刷新脚本缓存
+ * 5.当最后一个从服务器断开连接时，刷新缓存
+ * 6.我们也处理SCRIPT LOAD，因为这是脚本在主服务器中加载的方式
  * 1) Every time a new slave connects, we flush the whole script cache.
  * 2) We only send as EVALSHA what was sent to the master as EVALSHA, without
  *    trying to convert EVAL into EVALSHA specifically for slaves.
@@ -2174,7 +2187,7 @@ void refreshGoodSlavesCount(void) {
 void replicationScriptCacheInit(void) {
     server.repl_scriptcache_size = 10000;
     server.repl_scriptcache_dict = dictCreate(&replScriptCacheDictType,NULL);
-    server.repl_scriptcache_fifo = listCreate();
+    server.repl_scriptcache_fifo = listCreate(); //先进先出
 }
 
 /* Empty the script cache. Should be called every time we are no longer sure

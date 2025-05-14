@@ -11,6 +11,9 @@
 #define CLUSTER_NAMELEN 40    /* sha1 hex length */
 #define CLUSTER_PORT_INCR 10000 /* Cluster port = baseport + PORT_INCR */
 
+/*
+   以下定义是时间量，有时表示为节点超时值的乘数（当以MULT结尾时）
+*/
 /* The following defines are amount of time, sometimes expressed as
  * multiplicators of the node timeout value (when ending with MULT). */
 #define CLUSTER_DEFAULT_NODE_TIMEOUT 15000
@@ -26,7 +29,7 @@
 #define CLUSTER_SLAVE_MIGRATION_DELAY 5000 /* Delay for slave migration. */
 
 /* Redirection errors returned by getNodeByQuery(). */
-#define CLUSTER_REDIR_NONE 0          /* Node can serve the request. */
+#define CLUSTER_REDIR_NONE 0          /* 节点可以响应请求 Node can serve the request. */
 #define CLUSTER_REDIR_CROSS_SLOT 1    /* -CROSSSLOT request. */
 #define CLUSTER_REDIR_UNSTABLE 2      /* -TRYAGAIN redirection required */
 #define CLUSTER_REDIR_ASK 3           /* -ASK redirection required. */
@@ -40,14 +43,14 @@ struct clusterNode;
 typedef struct clusterLink {
     mstime_t ctime;             /* Link creation time */
     int fd;                     /* TCP socket file descriptor */
-    sds sndbuf;                 /* Packet send buffer */
+    sds sndbuf;                 /* 发送的包缓存 Packet send buffer */
     sds rcvbuf;                 /* Packet reception buffer */
     struct clusterNode *node;   /* Node related to this link if any, or NULL */
 } clusterLink;
 
 /* Cluster node flags and macros. */
-#define CLUSTER_NODE_MASTER 1     /* The node is a master */
-#define CLUSTER_NODE_SLAVE 2      /* The node is a slave */
+#define CLUSTER_NODE_MASTER 1     /* 节点是master The node is a master */
+#define CLUSTER_NODE_SLAVE 2      /* 节点是slave The node is a slave */
 #define CLUSTER_NODE_PFAIL 4      /* Failure? Need acknowledge */
 #define CLUSTER_NODE_FAIL 8       /* The node is believed to be malfunctioning */
 #define CLUSTER_NODE_MYSELF 16    /* This node is myself */
@@ -80,21 +83,21 @@ typedef struct clusterNodeFailReport {
 } clusterNodeFailReport;
 
 typedef struct clusterNode {
-    mstime_t ctime; /* Node object creation time. */
-    char name[CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
+    mstime_t ctime; /* Node object creation time.  节点对象创建的时间*/
+    char name[CLUSTER_NAMELEN]; /* 节点名称  Node name, hex string, sha1-size */
     int flags;      /* CLUSTER_NODE_... */
     uint64_t configEpoch; /* Last configEpoch observed for this node */
     unsigned char slots[CLUSTER_SLOTS/8]; /* slots handled by this node */
     int numslots;   /* Number of slots handled by this node */
     int numslaves;  /* Number of slave nodes, if this is a master */
-    struct clusterNode **slaves; /* pointers to slave nodes */
+    struct clusterNode **slaves; /* 指向从节点的指针集合 pointers to slave nodes */
     struct clusterNode *slaveof; /* pointer to the master node. Note that it
                                     may be NULL even if the node is a slave
                                     if we don't have the master node in our
                                     tables. */
-    mstime_t ping_sent;      /* Unix time we sent latest ping */
-    mstime_t pong_received;  /* Unix time we received the pong */
-    mstime_t fail_time;      /* Unix time when FAIL flag was set */
+    mstime_t ping_sent;      /* 发送最后ping 的unix时间戳 Unix time we sent latest ping */
+    mstime_t pong_received;  /* 收到pong的时间 Unix time we received the pong */
+    mstime_t fail_time;      /* fail标记设置的时间 Unix time when FAIL flag was set */
     mstime_t voted_time;     /* Last time we voted for a slave of this master */
     mstime_t repl_offset_time;  /* Unix time we received offset for this node */
     mstime_t orphaned_time;     /* Starting time of orphaned master condition */
@@ -106,36 +109,40 @@ typedef struct clusterNode {
 } clusterNode;
 
 typedef struct clusterState {
-    clusterNode *myself;  /* This node */
+    clusterNode *myself;  /* This node  当前节点*/
     uint64_t currentEpoch;
-    int state;            /* CLUSTER_OK, CLUSTER_FAIL, ... */
-    int size;             /* Num of master nodes with at least one slot */
-    dict *nodes;          /* Hash table of name -> clusterNode structures */
+    int state;            /* 集群状态 CLUSTER_OK, CLUSTER_FAIL, ... */
+    int size;             /* 至少有一个槽位的主节点个数 Num of master nodes with at least one slot */
+    dict *nodes;          /* 名称->集群节点的 hash表 Hash table of name -> clusterNode structures */
     dict *nodes_black_list; /* Nodes we don't re-add for a few seconds. */
-    clusterNode *migrating_slots_to[CLUSTER_SLOTS];
+    clusterNode *migrating_slots_to[CLUSTER_SLOTS]; //CLUSTER_SLOTS = 16384
     clusterNode *importing_slots_from[CLUSTER_SLOTS];
-    clusterNode *slots[CLUSTER_SLOTS];
+    clusterNode *slots[CLUSTER_SLOTS]; //槽数组
     zskiplist *slots_to_keys;
+    /*以下字段用于在选举中获取从属状态*/
     /* The following fields are used to take the slave state on elections. */
     mstime_t failover_auth_time; /* Time of previous or next election. */
-    int failover_auth_count;    /* Number of votes received so far. */
-    int failover_auth_sent;     /* True if we already asked for votes. */
-    int failover_auth_rank;     /* This slave rank for current auth request. */
-    uint64_t failover_auth_epoch; /* Epoch of the current election. */
-    int cant_failover_reason;   /* Why a slave is currently not able to
+    int failover_auth_count;    /* 到目前为止收到的票数 Number of votes received so far. */
+    int failover_auth_sent;     /* 是否已经询问投票 True if we already asked for votes. */
+    int failover_auth_rank;     /* 当前授权请求的从属级别 This slave rank for current auth request. */
+    uint64_t failover_auth_epoch; /* 当前选举的epoch Epoch of the current election. */
+    int cant_failover_reason;   /* 为什么从服务器当前不能进行故障转移 Why a slave is currently not able to
                                    failover. See the CANT_FAILOVER_* macros. */
-    /* Manual failover state in common. */
+    /* Manual failover state in common. 手动故障转移状态 */
     mstime_t mf_end;            /* Manual failover time limit (ms unixtime).
                                    It is zero if there is no MF in progress. */
-    /* Manual failover state of master. */
+    /* Manual failover state of master.  主服务器的手动故障转移状态 */
     clusterNode *mf_slave;      /* Slave performing the manual failover. */
     /* Manual failover state of slave. */
     long long mf_master_offset; /* Master offset the slave needs to start MF
                                    or zero if stil not received. */
-    int mf_can_start;           /* If non-zero signal that the manual failover
+    int mf_can_start;           /* 如果是非零信号，则表示手动故障转移可以开始请求主投票 If non-zero signal that the manual failover
                                    can start requesting masters vote. */
+
+    /* 不过比如在系统时间方面，epoch指的是一个特定的起始时间点 */
+    /* master使用以下字段在选举中获取状态 */
     /* The followign fields are used by masters to take state on elections. */
-    uint64_t lastVoteEpoch;     /* Epoch of the last vote granted. */
+    uint64_t lastVoteEpoch;     /* 最后一次投票通过的时代 Epoch of the last vote granted. */
     int todo_before_sleep; /* Things to do in clusterBeforeSleep(). */
     long long stats_bus_messages_sent;  /* Num of msg sent via cluster bus. */
     long long stats_bus_messages_received; /* Num of msg rcvd via cluster bus.*/

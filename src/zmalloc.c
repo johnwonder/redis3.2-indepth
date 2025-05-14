@@ -190,6 +190,7 @@ void *zrealloc(void *ptr, size_t size) {
 #else
     realptr = (char*)ptr-PREFIX_SIZE;
     oldsize = *((size_t*)realptr);
+    /*使用真正的指针 来调用realloc*/
     newptr = realloc(realptr,size+PREFIX_SIZE);
     if (!newptr) zmalloc_oom_handler(size);
 

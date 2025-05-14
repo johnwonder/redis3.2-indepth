@@ -85,6 +85,9 @@ sds keyspaceEventsFlagsToString(int flags) {
     return res;
 }
 
+/*
+notifyKeyspaceEvent：通过PUBLUSH发送消息
+*/
 /* The API provided to the rest of the Redis core is a simple function:
  *
  * notifyKeyspaceEvent(char *event, robj *key, int dbid);

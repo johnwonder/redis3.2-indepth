@@ -61,6 +61,10 @@ static void anetSetError(char *err, const char *fmt, ...)
 int anetSetBlock(char *err, int fd, int non_block) {
     int flags;
 
+    /*
+    ‌fcntl(2) 加了(2)是因为它是一个系统调用，而系统调用通常在手册中以“(n)”标记，其中“n”表示该调用的编号。
+    系统调用的编号通常从1开始，而fcntl是第2个系统调用，因此标记为fcntl(2)。
+    */
     /* Set the socket blocking (if non_block is zero) or non-blocking.
      * Note that fcntl(2) for F_GETFL and F_SETFL can't be
      * interrupted by a signal. */
@@ -93,6 +97,12 @@ int anetBlock(char *err, int fd) {
     return anetSetBlock(err,fd,0);
 }
 
+/*
+在C语言的网络编程中，为了检测已断开的连接或不再活跃的对等体（peers），我们可以为TCP套接字设置TCP keep-alive选项。
+这个选项能够让操作系统在连接空闲时定期发送保活探测包（keep-alive packets），从而检测连接是否仍然有效
+
+interval选项仅用于Linux，因为我们正在使用特定于Linux的api来设置探测发送时间、间隔和计数
+*/
 /* Set TCP keep alive option to detect dead peers. The interval option
  * is only used for Linux as we are using Linux-specific APIs to set
  * the probe send time, interval, and count. */
@@ -109,9 +119,13 @@ int anetKeepAlive(char *err, int fd, int interval)
 
     保活包通常用于长时间闲置的连接或需要保持持久连接的场景，如 TCP 连接。在TCP keepalive 机制中，保活包被用于检测连接的状态，以便及时发现连接断开或对端应用程序异常退出等情况。
 
-    保活包的具体设置和发送间隔可以通过设置相关的套接字选项来进行配置。这些选项包括 SO_KEEPALIVE、TCP_KEEPIDLE 和 TCP_KEEPINTVL 等。通常，首先启用 SO_KEEPALIVE 套接字选项，然后设置空闲时间阈值 (TCP_KEEPIDLE) 和探测报文发送间隔 (TCP_KEEPINTVL)。
+    保活包的具体设置和发送间隔可以通过设置相关的套接字选项来进行配置。
+    
+    这些选项包括 SO_KEEPALIVE、TCP_KEEPIDLE 和 TCP_KEEPINTVL 等。
+    通常，首先启用 SO_KEEPALIVE 套接字选项，然后设置空闲时间阈值 (TCP_KEEPIDLE) 和探测报文发送间隔 (TCP_KEEPINTVL)。
 
-    当启用了保活包机制后，在连接空闲一段时间后（达到 TCP_KEEPIDLE 设置的阈值），将开始发送保活包。如果在一定时间内没有收到对端的响应，就认为连接已经失效，并进行相应的处理，如关闭连接或重新建立连接等。
+    当启用了保活包机制后，在连接空闲一段时间后（达到 TCP_KEEPIDLE 设置的阈值），将开始发送保活包。
+    如果在一定时间内没有收到对端的响应，就认为连接已经失效，并进行相应的处理，如关闭连接或重新建立连接等。
     */
     if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &val, sizeof(val)) == -1)
     {
@@ -157,6 +171,7 @@ int anetKeepAlive(char *err, int fd, int interval)
 
 static int anetSetTcpNoDelay(char *err, int fd, int val)
 {
+    //TCP_NODELAY选项的作用是禁用Nagle算法。这意味着发送方会立即发送数据，无论数据包的大小如何。
     if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val)) == -1)
     {
         anetSetError(err, "setsockopt TCP_NODELAY: %s", strerror(errno));
@@ -485,12 +500,13 @@ static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backl
     char _port[6];  /* strlen("65535") */
     struct addrinfo hints, *servinfo, *p;
 
+    //放入_port字符数组中
     snprintf(_port,6,"%d",port);
 
     /*hints 提示*/
     memset(&hints,0,sizeof(hints));
-    hints.ai_family = af;
-    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_family = af; //比如  AF_INET  AF_INET6
+    hints.ai_socktype = SOCK_STREAM; //tcp协议
     hints.ai_flags = AI_PASSIVE;    /* No effect if bindaddr != NULL */
 
     //这里没有选择使用 gethostbyname 这个 API，
@@ -502,12 +518,17 @@ static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backl
     }
     /*1.3.6 直接 使用  socket(AF_INET, SOCK_STREAM, 0)*/
     for (p = servinfo; p != NULL; p = p->ai_next) {
+        //成功时，返回一个非负的文件描述符，表示创建的套接字。
+        //失败时，返回-1，并设置 errno 变量以指示错误类型。
+        //type（类型）：指定套接字的类型。主要有 SOCK_STREAM（流式套接字，用于TCP协议），
+        //SOCK_DGRAM（数据报套接字，用于UDP协议），
+        //以及 SOCK_RAW（原始套接字，用于直接访问网络层）。
         if ((s = socket(p->ai_family,p->ai_socktype,p->ai_protocol)) == -1)
             continue;
 
         if (af == AF_INET6 && anetV6Only(err,s) == ANET_ERR) goto error;
         if (anetSetReuseAddr(err,s) == ANET_ERR) goto error;
-        //bind and listen
+        //bind and listen两个函数
         /*绑定和监听*/
         if (anetListen(err,s,p->ai_addr,p->ai_addrlen,backlog) == ANET_ERR) goto error;
         goto end;
@@ -558,15 +579,17 @@ int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
 static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *len) {
     int fd;
     while(1) {
+        //返回一个fd
         fd = accept(s,sa,len);
         if (fd == -1) {
             if (errno == EINTR)
                 continue;
             else {
                 anetSetError(err, "accept: %s", strerror(errno));
-                return ANET_ERR;
+                return ANET_ERR; //-1
             }
         }
+        //这里会跳出
         break;
     }
     return fd;
@@ -574,14 +597,22 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
 
 int anetTcpAccept(char *err, int s, char *ip, size_t ip_len, int *port) {
     int fd;
+    //原来的sockaddr结构体因为空间不足，无法处理更大的地址结构，比如IPv6的26字节，
+    //所以sockaddr_storage被设计出来，提供更大的空间
+    //传统结构体的不足‌：sockaddr结构体仅提供14字节的sa_data字段，无法容纳IPv6等较大地址，导致操作繁琐且易出错‌13。
+    //‌通用性需求‌：sockaddr_storage通过统一大内存空间和内存对齐机制，简化了多协议地址的存储和处理‌
     struct sockaddr_storage sa;
     socklen_t salen = sizeof(sa);
     if ((fd = anetGenericAccept(err,s,(struct sockaddr*)&sa,&salen)) == -1)
         return ANET_ERR;
 
+    //类型转换‌：使用时需强制转换为具体协议的结构体（如sockaddr_in），并通过ss_family字段判断协议类型‌24。
     if (sa.ss_family == AF_INET) {
         struct sockaddr_in *s = (struct sockaddr_in *)&sa;
+        //inet_ntop 是网络编程中用于将二进制格式的IP地址转换为可读字符串的核心函数，支持IPv4和IPv6协议
+        //放入ip字符数组里
         if (ip) inet_ntop(AF_INET,(void*)&(s->sin_addr),ip,ip_len);
+        //ntohs 是网络编程中用于处理字节序转换的核心函数，主要功能是将 ‌16位无符号短整型数‌ 从网络字节序转换为主机字节序。
         if (port) *port = ntohs(s->sin_port);
     } else {
         struct sockaddr_in6 *s = (struct sockaddr_in6 *)&sa;

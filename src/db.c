@@ -183,7 +183,10 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     int retval = dictAdd(db->dict, copy, val);
 
     serverAssertWithInfo(NULL,key,retval == DICT_OK);
+    /*值类型为list*/
     if (val->type == OBJ_LIST) signalListAsReady(db, key);
+
+    /*集群模式*/
     if (server.cluster_enabled) slotToKeyAdd(key);
  }
 
@@ -317,6 +320,10 @@ int selectDb(client *c, int id) {
     return C_OK;
 }
 
+
+/*
+包含通知WATCH列表、通知客户端更新缓存
+*/
 /*-----------------------------------------------------------------------------
  * Hooks for key space changes.
  *

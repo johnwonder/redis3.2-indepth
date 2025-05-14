@@ -227,7 +227,7 @@ typedef struct sentinelRedisInstance {
 
 /* Main state. */
 struct sentinelState {
-    char myid[CONFIG_RUN_ID_SIZE+1]; /* This sentinel ID. sentinel ID */
+    char myid[CONFIG_RUN_ID_SIZE+1]; /* 哨兵ID This sentinel ID. sentinel ID */
     uint64_t current_epoch;         
     /* Current epoch.  在Redis Sentinel中，current_epoch（当前纪元）是一个非常重要的概念，
     它用于实现故障转移和领导者选举。
@@ -245,8 +245,8 @@ struct sentinelState {
     */
     int running_scripts;    /* Number of scripts in execution right now. */
     mstime_t tilt_start_time;       /* When TITL started. */
-    mstime_t previous_time;         /* Last time we ran the time handler. */
-    list *scripts_queue;            /* Queue of user scripts to execute. */
+    mstime_t previous_time;         /*运行时间处理器的最后时间 Last time we ran the time handler. */
+    list *scripts_queue;            /*执行的用户脚本队列 Queue of user scripts to execute. */
     char *announce_ip;  /* IP addr that is gossiped to other sentinels if
                            not NULL. */
     int announce_port;  /* Port that is gossiped to other sentinels if
@@ -435,11 +435,12 @@ void sentinelSetCommand(client *c);
 void sentinelPublishCommand(client *c);
 void sentinelRoleCommand(client *c);
 
+/* 哨兵命令集合 */
 struct redisCommand sentinelcmds[] = {
-    {"ping",pingCommand,1,"",0,NULL,0,0,0,0,0},
-    {"sentinel",sentinelCommand,-2,"",0,NULL,0,0,0,0,0},
-    {"subscribe",subscribeCommand,-2,"",0,NULL,0,0,0,0,0},
-    {"unsubscribe",unsubscribeCommand,-1,"",0,NULL,0,0,0,0,0},
+    {"ping",pingCommand,1,"",0,NULL,0,0,0,0,0},//ping命令
+    {"sentinel",sentinelCommand,-2,"",0,NULL,0,0,0,0,0}, //哨兵命令
+    {"subscribe",subscribeCommand,-2,"",0,NULL,0,0,0,0,0}, //订阅命令
+    {"unsubscribe",unsubscribeCommand,-1,"",0,NULL,0,0,0,0,0},//取消订阅命令
     {"psubscribe",psubscribeCommand,-2,"",0,NULL,0,0,0,0,0},
     {"punsubscribe",punsubscribeCommand,-1,"",0,NULL,0,0,0,0,0},
     {"publish",sentinelPublishCommand,3,"",0,NULL,0,0,0,0,0},
@@ -452,7 +453,7 @@ struct redisCommand sentinelcmds[] = {
 /* This function overwrites a few normal Redis config default with Sentinel
  * specific defaults. */
 void initSentinelConfig(void) {
-    server.port = REDIS_SENTINEL_PORT;
+    server.port = REDIS_SENTINEL_PORT;//26379
 }
 
 /* server.c中调用 */
@@ -486,17 +487,21 @@ void initSentinel(void) {
     memset(sentinel.myid,0,sizeof(sentinel.myid));
 }
 
-/*当服务在哨兵模式下运行时 被调用 */
+/*
+    当服务在哨兵模式下运行时 被调用 
+    加载配置，准备正常操作
+*/
 /* This function gets called when the server is in Sentinel mode, started,
  * loaded the configuration, and is ready for normal operations. */
 void sentinelIsRunning(void) {
     int j;
-
+    /*没有配置文件 就会退出*/
     if (server.configfile == NULL) {
         serverLog(LL_WARNING,
             "Sentinel started without a config file. Exiting...");
         exit(1);
     } else if (access(server.configfile,W_OK) == -1) {
+        //如果验证写配置文件失败，
         serverLog(LL_WARNING,
             "Sentinel config file %s is not writable: %s. Exiting...",
             server.configfile,strerror(errno));
@@ -506,13 +511,15 @@ void sentinelIsRunning(void) {
     /* If this Sentinel has yet no ID set in the configuration file, we
      * pick a random one and persist the config on disk. From now on this
      * will be this Sentinel ID across restarts. */
-    for (j = 0; j < CONFIG_RUN_ID_SIZE; j++)
-        if (sentinel.myid[j] != 0) break;
+    for (j = 0; j < CONFIG_RUN_ID_SIZE; j++) //CONFIG_RUN_ID_SIZE =40
+        if (sentinel.myid[j] != 0) break; //只要有一处不等于0 那就代表不用重新生成
 
+    //
     if (j == CONFIG_RUN_ID_SIZE) {
-        //重新生成id
+        //重新生成id 并且持久化配置
         /* Pick ID and presist the config. */
         getRandomHexChars(sentinel.myid,CONFIG_RUN_ID_SIZE);
+        /*持久化配置*/
         sentinelFlushConfig();
     }
 
