@@ -705,7 +705,7 @@ dictType commandTableDictType = {
     NULL,                      /* val dup */
     dictSdsKeyCaseCompare,     /* key compare */
     dictSdsDestructor,         /* key destructor */
-    NULL                       /* val destructor */
+    NULL                       /* 值析构函数 val destructor */
 };
 
 /* Hash type hash table (note that small hashes are represented with ziplists) */
@@ -1246,6 +1246,8 @@ void updateCachedTime(void) {
     server.mstime = mstime();
 }
 
+
+//时间事件的主要执行函数
 //100毫秒执行一次 相当于每秒执行10(server.hz默认为10)次
 //这是我们做一些需要异步完成的事情
 //举例如下：
@@ -1284,6 +1286,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     //serverLog(LL_WARNING,"serverCron triggered");
     
     int j;
+    /* 没有用到 */
     UNUSED(eventLoop);
     UNUSED(id);
     UNUSED(clientData);
@@ -1497,8 +1500,21 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         if (server.cluster_enabled) clusterCron();
     }
 
+    /*
+      如果我们在哨兵模式 就运行哨兵timer
+    */
     /* Run the Sentinel timer if we are in sentinel mode. */
     run_with_period(100) {
+        
+        /*
+            监控
+            不断的检查master和slave是否正常运行。
+            master存活检测、master与slave运行情况检测
+            通知（提醒）
+            当被监控的服务器出现问题时，向其他（哨兵间，客户端）发送通知。
+            自动故障转移
+            断开master与slave连接，选取一个slave作为master，将其他slave连接到新的master，并告知客户端新的服务器地址
+        */
         if (server.sentinel_mode) sentinelTimer();
     }
 
@@ -1745,7 +1761,7 @@ void initServerConfig(void) {
     server.maxclients = CONFIG_DEFAULT_MAX_CLIENTS; //默认最多10000个客户端连接
     server.bpop_blocked_clients = 0; //多少个客户端因为bpop阻塞
     server.maxmemory = CONFIG_DEFAULT_MAXMEMORY; //最大内存
-    server.maxmemory_policy = CONFIG_DEFAULT_MAXMEMORY_POLICY; //最大内存策略
+    server.maxmemory_policy = CONFIG_DEFAULT_MAXMEMORY_POLICY; //最大内存策略 默认为 NO_EVICTION
     server.maxmemory_samples = CONFIG_DEFAULT_MAXMEMORY_SAMPLES;
     //跟默认配置一样
     //当hash只有少数条目时使用一个内存紧凑的数据结构， 最大条目没有给定一个阈值。
@@ -1836,7 +1852,7 @@ void initServerConfig(void) {
     /* Command table -- we initiialize it here as it is part of the
      * initial configuration, since command names may be changed via
      * redis.conf using the rename-command directive. */
-    server.commands = dictCreate(&commandTableDictType,NULL);
+    server.commands = dictCreate(&commandTableDictType,NULL); //
     server.orig_commands = dictCreate(&commandTableDictType,NULL);
     /*把命令表放入 commands 和 orig_commands 两个字典*/
     populateCommandTable();
@@ -4289,6 +4305,8 @@ int checkForSentinelMode(int argc, char **argv) {
     int j;
     /*如果第一个参数就是 redis-sentinel*/
     if (strstr(argv[0],"redis-sentinel") != NULL) return 1;
+
+    /*或者 如果有 --sentinel 的参数 */
     /*从第二个参数查找 只要有一个是 --sentinel */
     for (j = 1; j < argc; j++)
         if (!strcmp(argv[j],"--sentinel")) return 1;
@@ -4430,26 +4448,26 @@ int redisIsSupervised(int mode) {
 }
 
 // Redis2 主从复制（全量同步，部分重同步），哨兵机制（2.8）高可用方案
-// Redis3 Redis Cluster
+// Redis3 Redis Cluster  (redis设计与实现里说redis3 更新主要与redis的多机功能有关)
 // Redis4 持久化机制,RDB持久化 AOF持久化 混合持久化
 // Redis6 多线程方式 访问控制列表ACL
 //https://it.sohu.com/a/557556042_121124374
 //https://developer.aliyun.com/article/974288
 //1） 添加GEO相关功能。
-// 2） SDS在速度和节省空间上都做了优化。
+// 2） SDS在速度和节省空间上都做了优化。 ？可以写篇文章谈sds是如何在速度和节省空间上做优化的
 // 3） 支持用upstart或者systemd管理Redis进程。
-// 4） 新的List编码类型：quicklist。
+// 4） 新的List编码类型：quicklist。  可以写篇文章谈quicklist对比原来的List编码类型优点在哪边
 // 5） 从节点读取过期数据保证一致性。
-// 6） 添加了hstrlen命令。
+// 6） 添加了hstrlen命令。  可以研究下为啥要添加hstrlen命令
 // 7） 增强了debug命令 支持了更多的参数。
-// 8） Lua脚本功能增强。
+// 8） Lua脚本功能增强。  可以谈谈增强在哪边
 // 9） 添加了Lua Debugger。
-// 10） config set支持更多的配置参数。
+// 10） config set支持更多的配置参数。 可以谈谈更多的配置参数是哪些
 // 11） 优化了Redis崩溃后的相关报告。
 // 12） 新的RDB格式，但是仍然兼容旧的RDB。
-// 13） 加速RDB的加载速度。
+// 13） 加速RDB的加载速度。 可以谈谈怎么加快的
 // 14） spop命令支持个数参数。
-// 15） cluster nodes命令得到加速。
+// 15） cluster nodes命令得到加速。 可以谈谈怎么加速的
 // 16） Jemalloc更新到4.0.3版本。
 int main(int argc, char **argv) {
     /* 可以这样启动 echo "\r\ndaemonize yes" | ./redis-server - */
@@ -4545,7 +4563,20 @@ int main(int argc, char **argv) {
 
     /*设置字典的 hash函数的种子*/
     dictSetHashFunctionSeed(tv.tv_sec^tv.tv_usec^getpid());
-    /* 判断是否是哨兵模式 */
+
+    /*
+     判断是否是哨兵模式
+     通过--sentinel 
+     或者程序名是否是redis-sentinel
+     */
+    /*
+      是redis的高可用性(high availability ) 解决方案：
+      由一个或多个Sentinel 实例(instance) 组成的Sentinel系统
+      可以监视多个主服务器，以及这些主服务器属下的所有从服务器，
+      并在被监视的主服务器进入下线状态时，自动将下线主服务器属下的
+      某个从服务器升级为新的主服务器，然后由新的主服务器代替
+      已下线的主服务器继续处理命令请求。
+    */
     server.sentinel_mode = checkForSentinelMode(argc,argv);
     //在读取配置文件之前 ，初始化一些默认配置 
     initServerConfig();
@@ -4558,6 +4589,7 @@ int main(int argc, char **argv) {
     server.executable = getAbsolutePath(argv[0]);
     /*特意是 argc+1 */
     /*sizeof(char*) 代表char指针占用的字节*/
+    /*每一个exec_argv元素 都是一个字符串 */
     server.exec_argv = zmalloc(sizeof(char*) * (argc+1));
     server.exec_argv[argc] = NULL;
     /*zstrdup 内幕是memcpy */
@@ -4571,7 +4603,9 @@ int main(int argc, char **argv) {
      * data structures with master nodes to monitor. */
     if (server.sentinel_mode) {
         //server.h中声明了这两个函数
+        /*初始化哨兵模式配置*/
         initSentinelConfig(); //设置端口为26379
+        /*初始化哨兵模式*/
         initSentinel();
     }
 
@@ -4585,6 +4619,9 @@ int main(int argc, char **argv) {
         redis_check_rdb_main(argc,argv); //内部会调用exit函数直接退出
 
     //如果参数数量大于等于2个的情况
+
+    //哨兵配置也在此处解析
+
     if (argc >= 2) {
         j = 1; /* First option to parse in argv[] */
         sds options = sdsempty();
@@ -4692,6 +4729,7 @@ int main(int argc, char **argv) {
     /* 检查 TCP backlog setting*/
     checkTcpBacklogSettings();
 
+    /*不是哨兵模式 会从磁盘加载数据*/
     if (!server.sentinel_mode) {
         /* Things not needed when running in Sentinel mode. */
 

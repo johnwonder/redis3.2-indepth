@@ -41,10 +41,16 @@
 #define DICT_OK 0
 #define DICT_ERR 1
 
+/* 未使用的参数会产生恼人的警告 */
 /* Unused arguments generate annoying warnings... */
 #define DICT_NOTUSED(V) ((void) V)
 
 typedef struct dictEntry {
+    /*每一个键值对都是由对象组成的*/
+    /*
+       数据库键总是一个字符串对象
+       值 可以是字符串对象，列表对象(list)，哈希对象(hash)，集合对象(set )，有序集合对象(sorted set)
+    */
     void *key;
     //// 值是一个联合体，当为后三者的时候，就不需要额外存储，利于减少内存碎片, 
     // 当然也可以是 void *，存储任何类型的数据，最早 redis1.0 版本就只是 void *

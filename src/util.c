@@ -491,6 +491,10 @@ void getRandomHexChars(char *p, unsigned int len) {
 
     if (seed_initialized) {
         while(len) {
+            /*
+                Digest 表示通过‌单向哈希函数‌对任意长度数据生成的‌固定长度唯一标识
+                
+            */
             unsigned char digest[20];
             SHA1_CTX ctx;
             unsigned int copylen = len > 20 ? 20 : len;

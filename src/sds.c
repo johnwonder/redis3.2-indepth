@@ -68,13 +68,13 @@ static inline int sdsHdrSize(char type) {
 
 static inline char sdsReqType(size_t string_size) {
     //100000 = 2的5次方= 32
-    //长度小于32 用SDS_TYPE_5
+    //长度小于32 用SDS_TYPE_5 最大为011111
     //sdshdr5 类型最大可以存储长度为 2 ** 5 - 1 的字符串
 
     // 1<<5 100000 = 2的5次方 - 1
     if (string_size < 1<<5)
         return SDS_TYPE_5;
-    if (string_size < 1<<8)
+    if (string_size < 1<<8) //不能超过 2 ** 8 = 256 位
         return SDS_TYPE_8;
     if (string_size < 1<<16)
         return SDS_TYPE_16;
@@ -83,7 +83,9 @@ static inline char sdsReqType(size_t string_size) {
     return SDS_TYPE_64;
 }
 
-
+ // 创建一个 通过init指针和初始化长度指定内容的 sds字符串
+ //如果init为空 那么就用0字节 初始化
+ //字符串总是以null结束，即使用sdsnewlen("abc",3)创建
 /* Create a new sds string with the content specified by the 'init' pointer
  * and 'initlen'.
  * If NULL is used for 'init' the string is initialized with zero bytes.
@@ -99,11 +101,39 @@ static inline char sdsReqType(size_t string_size) {
 sds sdsnewlen(const void *init, size_t initlen) {
     void *sh;
     sds s;
+
+    /*
+        1、根据初始长度判断需要的字符串类型
+        2. 如果类型为SDS_TYPE_5且长度为0，那么类型会变为SDS_TYPE_8,
+           因为长度为0的字符串通常是为了追加而创建的，而SDS_TYPE_5在这方面不合适
+           所以在dbAdd的时候 键可以成为SDS_TYPE_5 ,因为键通常不变。
+        
+        3、根据类型获取对应sds结构体所需要的内存大小。
+        4. 分配内存：结构体大小+初始化字符串大小+null字符
+        5、如果没有初始化字符串，那么就把所有字符设为0
+        6、如果这时候sh指针为null,那么就返回null
+        7. s指针指向柔性数组 也就是真正存储字符串的地方
+           fp通过s指针后退一位指向flag
+
+        8. 根据类型选择  
+           如果是SDS_TYPE_5，那么就设置flag，
+           flag设置为初始长度向左偏移3位后再和类型做或运算的结果
+           如果是其他类型，那么就把s指针后退到结构体开始为止
+           通过宏来适配不同类型的结构体
+           fp通过s指针后退一位指向flag
+
+        9.如果长度和初始字符串都有了，那么就通过memcpy复制初始字符串到s中
+          s指向柔性数组
+
+    */
+
     //判断需要的类型
     //initlen小于32 代表小于32个字节
     //小于32个字节的话5位才能放下
     char type = sdsReqType(initlen);
     //type为SDS_TYPE_5的空字符串直接转换为SDS_TYPE_8
+
+    //因为空字符串经常是为了追加而创建
     /* Empty strings are usually created in order to append. Use type 8
      * since type 5 is not good at this. */
     if (type == SDS_TYPE_5 && initlen == 0) type = SDS_TYPE_8;
@@ -111,12 +141,13 @@ sds sdsnewlen(const void *init, size_t initlen) {
     int hdrlen = sdsHdrSize(type);
     unsigned char *fp; /* flags pointer. */
 
-    sh = s_malloc(hdrlen+initlen+1);
-    if (!init)
+    sh = s_malloc(hdrlen+initlen+1); //1代表最后的\0
+    if (!init) //可以这么判断
         memset(sh, 0, hdrlen+initlen+1); //3.0使用 sh = zcalloc(sizeof(struct sdshdr)+initlen+1);
     
+    //为啥不放在分配内存之后 就判断？
     if (sh == NULL) return NULL;
-    //s指向柔性数组
+    //s指向柔性数组 指针偏移
     s = (char*)sh+hdrlen;
     //指向flag
     fp = ((unsigned char*)s)-1;
@@ -126,14 +157,16 @@ sds sdsnewlen(const void *init, size_t initlen) {
             //flags占1个字节，其低3位（bit）表示type，高5位（bit）表示长度，能表示的长度区间为0～31（2的5次方-1)
             //flags: 00000 000
             //SDS_TYPE_BITS 为 3
+
+            //比如最大长度为00 011111 左移3位 就变为11111  000
             *fp = type | (initlen << SDS_TYPE_BITS);
             break;
         }
         case SDS_TYPE_8: {
             //利用宏定义一个结构体指针
             //指针指向sdshdr8起始地址
-            SDS_HDR_VAR(8,s);
-            sh->len = initlen;
+            SDS_HDR_VAR(8,s); //为了使得sh是SDS_TYPE_8类型的指针
+            sh->len = initlen; //不包含\0
             sh->alloc = initlen;
             *fp = type;
             break;
@@ -141,28 +174,28 @@ sds sdsnewlen(const void *init, size_t initlen) {
         case SDS_TYPE_16: {
             SDS_HDR_VAR(16,s);
             //sh 是SDS_HDR_VAR里设置的
-            sh->len = initlen;
-            sh->alloc = initlen;
+            sh->len = initlen; //不包含\0 
+            sh->alloc = initlen; // 高版本做了修改
             *fp = type;
             break;
         }
         case SDS_TYPE_32: {
             SDS_HDR_VAR(32,s);
-            sh->len = initlen;
+            sh->len = initlen; //不包含\0
             sh->alloc = initlen;
             *fp = type;
             break;
         }
         case SDS_TYPE_64: {
             SDS_HDR_VAR(64,s);
-            sh->len = initlen;
+            sh->len = initlen; //不包含\0
             sh->alloc = initlen;
             *fp = type;
             break;
         }
     }
     if (initlen && init)
-        memcpy(s, init, initlen);
+        memcpy(s, init, initlen); //使用memcpy复制
     s[initlen] = '\0';
     return s;
 }
@@ -182,6 +215,7 @@ sds sdsnew(const char *init) {
     return sdsnewlen(init, initlen);
 }
 
+/*复制一个sds字符串*/
 /* Duplicate an sds string. */
 sds sdsdup(const sds s) {
     return sdsnewlen(s, sdslen(s));

@@ -179,6 +179,8 @@ robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
  *
  * The program is aborted if the key already exists. */
 void dbAdd(redisDb *db, robj *key, robj *val) {
+
+    /* 这里如果是小于32字节的字符串的时候 会编码为sdshdr5 类型的  */
     sds copy = sdsdup(key->ptr);
     int retval = dictAdd(db->dict, copy, val);
 

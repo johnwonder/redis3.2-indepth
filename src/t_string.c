@@ -88,6 +88,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         addReply(c, abort_reply ? abort_reply : shared.nullbulk);
         return;
     }
+    /*设置 添加数据到字典中*/
     setKey(c->db,key,val);
     server.dirty++;
     //设置键过期

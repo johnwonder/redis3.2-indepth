@@ -1592,7 +1592,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(el);
     UNUSED(mask);
 
-    readlen = PROTO_IOBUF_LEN; //普通I/O 缓冲区大小
+    readlen = PROTO_IOBUF_LEN; //普通I/O 缓冲区大小 16kb
     /*
     如果这是一个多批量请求，并且我们正在处理一个足够大的批量回复
     尽量使查询缓冲区恰好包含表示对象的SDS字符串的概率最大化
@@ -1631,7 +1631,9 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     //扩大字符数组以容纳读取的readlen长度
     //如果查询缓冲区 有足够空间 会立马返回
     c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
-    /*调用read函数 读取*/
+
+
+    /*调用read函数 读取 字符到querybuf中 */
     /* c->querybuf+qblen 代表 移动到 c->querybuf+qblen 这个位置 */
     /*因为上面已经扩充空间了*/
     nread = read(fd, c->querybuf+qblen, readlen);

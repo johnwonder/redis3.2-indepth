@@ -36,8 +36,8 @@
 #define SDS_MAX_PREALLOC (1024*1024)
 
 #include <sys/types.h>
-#include <stdarg.h>
-#include <stdint.h>
+#include <stdarg.h> //stdarg.h 是 C 标准库中用于处理‌可变参数函数‌的核心头文件，提供了一套宏机制，允许开发者定义和操作参数数量不固定的函数
+#include <stdint.h> //stdint.h 是 C 语言标准库中用于定义‌固定宽度整数类型‌的头文件，旨在解决不同平台整数类型大小不一致的问题，提升代码可移植性
 
 typedef char *sds;
 
@@ -57,8 +57,15 @@ typedef char *sds;
   实际上这里说没有用，不是说 sdshdr5 类型没有用到，只是说这个结构体没有用到（除去 debug 相关
 */
 struct __attribute__ ((__packed__)) sdshdr5 {
+    /* msb‌ 是 ‌Most Significant Bits‌（最高有效位）的缩写 */
+
+    /*内存优化‌：针对长度 ≤ 31 的短字符串，直接复用 flags 的高 5 位存储长度，无需额外 len 字段，节省内存*/
+    /*‌高效读取‌：通过位运算快速解码长度和类型，时间复杂度为 O(1)*/
+    /*msb 的适用场景‌：仅用于 sdshdr5，专门优化短字符串的内存占用*/
+    /*核心优势‌：避免小字符串因单独存储 len 字段导致内存浪费，适合高频使用的短键名或值*/
+
     unsigned char flags; /* 3 lsb of type, and 5 msb of string length */
-    char buf[];
+    char buf[];/*真正存储字符的内容*/
 };
 /*
 SDS在Redis 3.2+有可能节省更多的空间，
@@ -79,10 +86,20 @@ buf 数组并没有指定数组长度，它是 C99 规范定义的柔性数组�
 所以 len 和 alloc 一个字节最多都只能能表示到 0 - 255 这个范围的数字
 
 高效操作的基础都是依赖到这个 flags 再到 header，见后面 sdslen
+
+len：记录字符串长度，也是buf已用长度（不包含\0结束符），通过这个属性，我们可以直接以 O(1) 的时间复杂度获的字符串的长度
+alloc：为buf分配的总长度（是不包含header和NULL结束符的），通过 alloc - len 就可以得到字符串剩余可使用的内存空间，
+当剩余空间足够所需时，追加操作就可以避免去申请内存，避免内存重分配等操作直接安全的追加
+
+uint8_t 适合 二进制数据存储（如图像像素、网络协议） 位掩码操作（避免符号位干扰）
+
+之所以设计多种 header 头，是为了可以灵活的保存不同大小的字符串，为了更加节省内存空间，也为了 SDS 能够存储更大的字符串。
+● 因为一些小字符串，用小类型就能表示，占用的内存空间也会更小。否则如果 header 头都是一样的话，例如用 uint64_t 来表示 len 和 alloc 的话，假设保存的字符串实际上为 5 个字节，但是加上 len 和 alloc，它两各占 8 字节，总共就要占 16 个字节，元数据比本身保存的数据都要多了，就有点浪费。
+● 因为原本的 unsigned int len，能够表示的数值其实也有限，因为这个类型的数字最大也只能表示到 0~4294967295，显然如果是一个更大的字符串（这种情况下，SDS 上限为 4GB），就无法表示。issue: #757 (Remove 512 MB max value limit)
 */
 struct __attribute__ ((__packed__)) sdshdr8 {
     uint8_t len; /* used  已使用长度，用1字节存储 */ 
-    uint8_t alloc; /* excluding the header and null terminator 总长度  */
+    uint8_t alloc; /* 总长度  excluding the header and null terminator  */
     unsigned char flags; /*  低3位存储类型，高5位预留 3 lsb（Least Significant Bit） of type, 5 unused bits */
     char buf[];
 };
@@ -124,17 +141,19 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 例如其中的 len 长度字段，就可以 0(1) 的时间复杂度直接获取到 sds 字符串长度
 */
 static inline size_t sdslen(const sds s) {
+    //内存是连续的 所以可以使用索引-1
     unsigned char flags = s[-1];
+    /*位运算判断类型*/
     switch(flags&SDS_TYPE_MASK) {
         case SDS_TYPE_5: //flags 低三位为0  & 111 = 0
             return SDS_TYPE_5_LEN(flags); //右移3位
-        case SDS_TYPE_8:
+        case SDS_TYPE_8: //1个字节
             return SDS_HDR(8,s)->len;
-        case SDS_TYPE_16:
+        case SDS_TYPE_16: //2个字节
             return SDS_HDR(16,s)->len;
-        case SDS_TYPE_32:
+        case SDS_TYPE_32: //4个字节
             return SDS_HDR(32,s)->len;
-        case SDS_TYPE_64:
+        case SDS_TYPE_64: //8个字节
             return SDS_HDR(64,s)->len;
     }
     return 0;

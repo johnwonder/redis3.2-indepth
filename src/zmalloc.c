@@ -232,6 +232,8 @@ void zfree(void *ptr) {
     oldsize = *((size_t*)realptr); //分配空间的大小
     update_zmalloc_stat_free(oldsize+PREFIX_SIZE);
     free(realptr);
+    //动态分配的内存块通常包含隐藏的头部信息（如大小、状态等），位于返回给用户的指针地址之前5。
+    //例如，分配 20 字节时，实际可能分配 24 字节（额外 4 字节存储块大小）。
 #endif
 }
 

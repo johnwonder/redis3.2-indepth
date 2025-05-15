@@ -615,6 +615,11 @@ void loadServerConfigFromString(char *config) {
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"sentinel")) {
+
+            /*
+                sentinel.conf 里是sentinel开头的配置
+            */
+
             /* argc == 1 is handled by main() as we need to enter the sentinel
              * mode ASAP. */
             if (argc != 1) {
