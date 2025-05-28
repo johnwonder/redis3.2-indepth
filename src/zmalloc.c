@@ -67,6 +67,8 @@ void zlibc_free(void *ptr) {
 //在内存分配方面，Redis支持使用不同的内存分配器，包括
 //glibc库提供的默认分配器tcmalloc、第三方库提供的jemalloc
 /* Explicitly override malloc/free etc when using tcmalloc. */
+/*通过 make USE_TCMALLOC=yes 命令传递的参数会定义 USE_TCMALLOC 宏，触发代码中的条件编译*/
+/*编译后检查 redis-server 的符号表，确认是否链接了 libtcmalloc.so*/
 #if defined(USE_TCMALLOC)
 #define malloc(size) tc_malloc(size)
 #define calloc(count,size) tc_calloc(count,size)

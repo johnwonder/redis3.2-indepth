@@ -102,7 +102,9 @@
 			"iosfwd": "cpp",
 			"iostream": "cpp",
 			"limits": "cpp",
-			"numbers": "cpp"
+			"numbers": "cpp",
+			"zmalloc.h": "c",
+			"ranges": "c"
 		},
 		"makefile.configureOnOpen": true
 	}

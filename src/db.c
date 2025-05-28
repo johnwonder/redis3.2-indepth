@@ -264,6 +264,24 @@ int dbDelete(redisDb *db, robj *key) {
     }
 }
 
+/*
+准备存储在‘key’处的字符串对象，以便对其进行破坏性修改，以实现SETBIT或APPEND等命令
+对象通常准备好修改，除非两个条件中的一个为真
+
+1. 对象‘o’是共享的（refcount > 1），我们不希望影响其他用户
+2. 对象编码不是raw
+
+如果该函数在上述条件之一（或两者）中找到该对象，
+则该字符串对象的非共享/未编码副本将存储在指定的‘db’中的‘key’处。
+否则将返回对象‘o’本身
+
+用法：
+对象‘o’是调用者已经通过在‘db’中查找‘key’获得的，使用模式看起来像这样
+o = lookupKeyWrite(db,key);
+if (checkType(c,o,OBJ_STRING)) return;
+o = dbUnshareStringValue(db,key,o);
+此时，调用者已经准备好修改对象，例如使用sdscat（）调用来附加一些数据或其他任何内容
+*/
 /* Prepare the string object stored at 'key' to be modified destructively
  * to implement commands like SETBIT or APPEND.
  *
@@ -293,10 +311,15 @@ int dbDelete(redisDb *db, robj *key) {
  */
 robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
     serverAssert(o->type == OBJ_STRING);
+    //如果对象引用不只一个 或者编码不是raw
     if (o->refcount != 1 || o->encoding != OBJ_ENCODING_RAW) {
+        //先解码
         robj *decoded = getDecodedObject(o);
+        //创建raw类型的对象
         o = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
+        //降低原来的引用计数
         decrRefCount(decoded);
+        //覆盖key处的值
         dbOverwrite(db,key,o);
     }
     return o;

@@ -40,13 +40,16 @@ robj *createObject(int type, void *ptr) {
 
     //还能通过这种 直接通过变量名来算sizeof
     robj *o = zmalloc(sizeof(*o));
-    o->type = type;
+    o->type = type; //默认类型为OBJ_STRING
     /*默认是RAW*/
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr; //ptr指针 指向sds
-    o->refcount = 1;
+    o->refcount = 1; //当前引用计数初始化为1
 
     /*设置LRU为当前lruclock（分钟分辨率）*/
+    /*
+        lru 字段存储 ‌最近一次访问的时间戳‌ 或 ‌访问频率信息‌（取决于淘汰策略），用于判定对象的“热度”
+    */
     /* Set the LRU to the current lruclock (minutes resolution). */
     o->lru = LRU_CLOCK();
     return o;
@@ -73,7 +76,7 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     //这里直接使用sdshdr8类型了
     //embstr：一次 malloc 分配 robj + sdshdr8 + sdslen + \0
     robj *o = zmalloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
-    //指针的妙用 + 1 因为o是robj类型的指针  +1
+    //指针的妙用 + 1 因为o是robj类型的指针  +1 后就是到robj的后面
     struct sdshdr8 *sh = (void*)(o+1);
 
     o->type = OBJ_STRING; //string类型
@@ -390,6 +393,7 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
     }
 }
 
+/*尝试编码string对象 去节省空间*/
 /* Try to encode a string object in order to save space */
 robj *tryObjectEncoding(robj *o) {
     long value;
@@ -476,7 +480,8 @@ robj *tryObjectEncoding(robj *o) {
     if (o->encoding == OBJ_ENCODING_RAW &&
         sdsavail(s) > len/10)
     {
-        //移除空闲空间
+        //如果对象编码为raw 且 剩余空间 大于 长度的十分之一
+        //那么就移除空闲空间
         o->ptr = sdsRemoveFreeSpace(o->ptr);
     }
 

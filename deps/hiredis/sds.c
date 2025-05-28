@@ -1097,6 +1097,10 @@ sds sdsjoinsds(sds *argv, int argc, const char *sep, size_t seplen) {
     return join;
 }
 
+/*
+包装器到SDS使用的分配器。注意，SDS实际上只使用定义在sdsalloc.h中的宏，以避免支付函数调用的开销。
+这里我们只为链接到SDS的程序定义这些包装器，如果它们想要接触SDS内部，即使它们使用不同的分配器
+*/
 /* Wrappers to the allocators used by SDS. Note that SDS will actually
  * just use the macros defined into sdsalloc.h in order to avoid to pay
  * the overhead of function calls. Here we define these wrappers only for

@@ -749,6 +749,11 @@ dictEntry *dictGetRandomKey(dict *d)
     return he;
 }
 
+/*
+在evictionPoolPopulate 中使用
+这个函数对字典进行采样，从随机位置返回几个键
+
+*/
 /* This function samples the dictionary to return a few keys from random
  * locations.
  *
@@ -773,13 +778,14 @@ dictEntry *dictGetRandomKey(dict *d)
  * at producing N elements. */
 unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
     unsigned long j; /* internal hash table id, 0 or 1. */
-    unsigned long tables; /* 1 or 2 tables? */
+    unsigned long tables; /* 1个或者2个表？ 1 or 2 tables? */
     unsigned long stored = 0, maxsizemask;
     unsigned long maxsteps;
 
     if (dictSize(d) < count) count = dictSize(d);
     maxsteps = count*10;
 
+    /* 尝试做一个与参数 count 成比例的散列工作。*/
     /* Try to do a rehashing work proportional to 'count'. */
     for (j = 0; j < count; j++) {
         if (dictIsRehashing(d))
@@ -787,7 +793,7 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
         else
             break;
     }
-
+    //如果正在rehash 那么就要查2个表
     tables = dictIsRehashing(d) ? 2 : 1;
     maxsizemask = d->ht[0].sizemask;
     if (tables > 1 && maxsizemask < d->ht[1].sizemask)

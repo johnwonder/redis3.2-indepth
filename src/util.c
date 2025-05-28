@@ -574,8 +574,15 @@ sds getAbsolutePath(char *filename) {
         return NULL;
     }
     abspath = sdsnew(cwd);
+    //如果最后一个字符不是/ 就连接一个/
     if (sdslen(abspath) && abspath[sdslen(abspath)-1] != '/')
         abspath = sdscat(abspath,"/");
+
+    /*
+        通常包含程序可执行文件的完整路径（绝对路径），例如：
+        Linux/Unix 系统：/home/user/projects/a.out
+        Windows 系统：C:\\Programs\\demo.exe
+    */
 
     /* At this point we have the current path always ending with "/", and
      * the trimmed relative path. Try to normalize the obvious case of
@@ -586,8 +593,10 @@ sds getAbsolutePath(char *filename) {
     while (sdslen(relpath) >= 3 &&
            relpath[0] == '.' && relpath[1] == '.' && relpath[2] == '/')
     {
+        /*移除relpath 开头的 ../*/
         sdsrange(relpath,3,-1);
         if (sdslen(abspath) > 1) {
+            //因为绝对路径中包含程序名称
             char *p = abspath + sdslen(abspath)-2;
             int trimlen = 1;
 
@@ -595,10 +604,13 @@ sds getAbsolutePath(char *filename) {
                 p--;
                 trimlen++;
             }
+            //比如/a.out/
+            //那么trimlen就是6
             sdsrange(abspath,0,-(trimlen+1));
         }
     }
 
+    /*abspath是工作目录  relpath是文件名称 */
     /* Finally glue the two parts together. */
     abspath = sdscatsds(abspath,relpath);
     sdsfree(relpath);

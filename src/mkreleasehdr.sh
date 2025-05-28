@@ -9,3 +9,4 @@ echo "#define REDIS_GIT_SHA1 \"$GIT_SHA1\"" > release.h
 echo "#define REDIS_GIT_DIRTY \"$GIT_DIRTY\"" >> release.h
 echo "#define REDIS_BUILD_ID \"$BUILD_ID\"" >> release.h
 touch release.c # Force recompile of release.c
+# touch若文件不存在，则创建空文件；若存在，则更新时间戳为当前时间

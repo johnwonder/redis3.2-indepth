@@ -29,6 +29,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+
+//该文件用于在编译时更改SDS分配器。
+//只需将以下定义定义为您想要使用的定义。如果需要，还可以添加备用分配器的include（为了使用默认的libc分配器，不需要）。
 /* SDS allocator selection.
  *
  * This file is used in order to change the SDS allocator at compile time.

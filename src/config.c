@@ -218,6 +218,7 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"bind") && argc >= 2) {
             int j, addresses = argc-1;
 
+            //最多16个地址
             if (addresses > CONFIG_BINDADDR_MAX) {
                 err = "Too many bind addresses specified"; goto loaderr;
             }

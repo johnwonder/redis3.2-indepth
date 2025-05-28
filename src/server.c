@@ -237,7 +237,7 @@ struct redisCommand redisCommandTable[] = {
     {"zrank",zrankCommand,3,"rF",0,NULL,1,1,1,0,0},
     {"zrevrank",zrevrankCommand,3,"rF",0,NULL,1,1,1,0,0},
     {"zscan",zscanCommand,-3,"rR",0,NULL,1,1,1,0,0},
-    {"hset",hsetCommand,4,"wmF",0,NULL,1,1,1,0,0},
+    {"hset",hsetCommand,4,"wmF",0,NULL,1,1,1,0,0}, //
     {"hsetnx",hsetnxCommand,4,"wmF",0,NULL,1,1,1,0,0},
     {"hget",hgetCommand,3,"rF",0,NULL,1,1,1,0,0},
     {"hmset",hmsetCommand,-4,"wm",0,NULL,1,1,1,0,0},
@@ -1114,14 +1114,25 @@ int clientsCronHandleTimeout(client *c, mstime_t now_ms) {
     return 0;
 }
 
+/*
+ 客户端查询缓冲区是一个sds.c字符串，可以以大量未使用的空闲空间结束，如果需要，这个函数会回收空间
+ 该函数总是返回0，因为它永远不会终止客户端。
+*/
 /* The client query buffer is an sds.c string that can end with a lot of
  * free space not used, this function reclaims space if needed.
  *
  * The function always returns 0 as it never terminates the client. */
 int clientsCronResizeQueryBuffer(client *c) {
+    //sdsAllocSize获取总共分配的空间
     size_t querybuf_size = sdsAllocSize(c->querybuf);
     time_t idletime = server.unixtime - c->lastinteraction;
 
+    /*
+        两个条件 会调整查询缓冲区
+        1.查询缓冲区 > BIG_ARG 1024*32 ，对于最近的峰值来说太大了 大于2倍
+
+        为啥要c->querybuf_peak+1 因为c->querybuf_peak赋值的是sdslen不包括最后的空字符
+    */
     /* There are two conditions to resize the query buffer:
      * 1) Query buffer is > BIG_ARG and too big for latest peak.
      * 2) Client is inactive and the buffer is bigger than 1k. */
@@ -1129,6 +1140,7 @@ int clientsCronResizeQueryBuffer(client *c) {
          (querybuf_size/(c->querybuf_peak+1)) > 2) ||
          (querybuf_size > 1024 && idletime > 2))
     {
+        /*只有在实际浪费空间时才调整查询缓冲区的大小*/
         /* Only resize the query buffer if it is actually wasting space. */
         if (sdsavail(c->querybuf) > 1024) {
             c->querybuf = sdsRemoveFreeSpace(c->querybuf);
@@ -1176,6 +1188,8 @@ void clientsCron(void) {
          * The protocol is that they return non-zero if the client was
          * terminated. */
         if (clientsCronHandleTimeout(c,now)) continue;
+
+        /* 调整客户端查询缓冲区 */
         if (clientsCronResizeQueryBuffer(c)) continue;
     }
 }
@@ -1382,6 +1396,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* We need to do a few operations on clients asynchronously. */
+    /*我们需要在客户端异步执行一些操作*/
     clientsCron();
 
     /* Handle background operations on Redis databases. */
@@ -1762,7 +1777,7 @@ void initServerConfig(void) {
     server.bpop_blocked_clients = 0; //多少个客户端因为bpop阻塞
     server.maxmemory = CONFIG_DEFAULT_MAXMEMORY; //最大内存
     server.maxmemory_policy = CONFIG_DEFAULT_MAXMEMORY_POLICY; //最大内存策略 默认为 NO_EVICTION
-    server.maxmemory_samples = CONFIG_DEFAULT_MAXMEMORY_SAMPLES;
+    server.maxmemory_samples = CONFIG_DEFAULT_MAXMEMORY_SAMPLES; //随机抽样精度默认是5
     //跟默认配置一样
     //当hash只有少数条目时使用一个内存紧凑的数据结构， 最大条目没有给定一个阈值。
     //这些阈值可以通过以下指令配置。
@@ -2768,6 +2783,7 @@ int processCommand(client *c) {
         return C_OK;
     } else if ((c->cmd->arity > 0 && c->cmd->arity != c->argc) ||
                (c->argc < -c->cmd->arity)) {
+        //当前参数数量和命令要求的参数数量不匹配
         flagTransaction(c);
         addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
             c->cmd->name);
@@ -2775,6 +2791,7 @@ int processCommand(client *c) {
     }
 
     /*检查用户是否被验证*/
+    /*如果服务端要求密码 但是当前客户端没有经过认证 而且当前命令不是认证命令 那么就返回错误*/
     /* Check if the user is authenticated */
     if (server.requirepass && !c->authenticated && c->cmd->proc != authCommand)
     {
@@ -2784,6 +2801,11 @@ int processCommand(client *c) {
     }
 
     /*如果启用集群，那就执行集群重定向*/
+    /*
+        不执行重定向有以下两个原因
+        1.如果命令发送者是我们的master
+        2.命令没有关键参数
+    */
     /* If cluster is enabled perform the cluster redirection here.
      * However we don't perform the redirection if:
      * 1) The sender of this command is our master.
@@ -2797,6 +2819,7 @@ int processCommand(client *c) {
     {
         int hashslot;
         int error_code;
+        //根据当前客户端 命令 参数查询 hash槽
         clusterNode *n = getNodeByQuery(c,c->cmd,c->argv,c->argc,
                                         &hashslot,&error_code);
         if (n == NULL || n != server.cluster->myself) {
@@ -2810,6 +2833,7 @@ int processCommand(client *c) {
         }
     }
 
+    //处理命令的时候会判断是否开启了maxmemory 配置
     //处理最大内存指令
     /* Handle the maxmemory directive.
      *
@@ -3792,6 +3816,21 @@ void monitorCommand(client *c) {
 
 //最大内存指令
 /* ============================ Maxmemory directive  ======================== */
+/*
+    在处理命令之前，在配置文件上设置‘maxmemory’以限制服务器使用的最大内存时，
+    会调用freeMemoryIfNeeded（）
+    该函数的目标是释放足够的内存，使Redis保持在配置的内存限制之下
+
+    该函数开始计算应该释放多少字节以保持Redis在限制之下，并进入一个循环，根据配置的策略选择最佳的键来驱逐
+
+    如果在限制下需要返回的所有字节都被释放，则函数返回C_OK，否则返回C_ERR，
+    并且调用者应该阻止将导致服务器使用更多内存的命令的执行
+
+    Redis使用了一种近似的LRU算法，该算法在恒定内存中运行。每次有一个键要过期时，
+    我们采样N个键（N非常小，通常在5左右），以填充一个最佳键池，以淘汰M个键（池大小由MAXMEMORY_EVICTION_POOL_SIZE定义）。
+
+
+*/
 
 /* freeMemoryIfNeeded() gets called when 'maxmemory' is set on the config
  * file to limit the max memory used by the server, before processing a
@@ -3821,11 +3860,15 @@ void monitorCommand(client *c) {
  * The N keys sampled are added in the pool of good keys to expire (the one
  * with an old access time) if they are better than one of the current keys
  * in the pool.
+ * 采样的N个键被添加到有效键池中，如果它们比池中的一个当前键更好，则将过期（具有旧访问时间的键）
  *
  * After the pool is populated, the best key we have in the pool is expired.
  * However note that we don't remove keys from the pool when they are deleted
  * so the pool may contain keys that no longer exist.
+ * 在填充池之后，我们在池中拥有的最佳密钥过期了。但是请注意，当键被删除时，我们不会从池中删除键，因此池中可能包含不再存在的键
  *
+ * 当我们试图取出一个键，并且池中的所有条目都不存在时，我们再次填充它。
+ * 这一次，我们将确保池中至少有一个键可以被驱逐，如果整个数据库中至少有一个键可以被驱逐的话
  * When we try to evict a key, and all the entries in the pool don't exist
  * we populate it again. This time we'll be sure that the pool has at least
  * one key that can be evicted, if there is at least one key that can be
@@ -3833,9 +3876,12 @@ void monitorCommand(client *c) {
 
 /* Create a new eviction pool. */
 struct evictionPoolEntry *evictionPoolAlloc(void) {
+
+
     struct evictionPoolEntry *ep;
     int j;
 
+    //也就是分配16个evictionPoolEntry的空间
     /*sizeof(*ep) 指的是 结构体的大小*/
     /* MAXMEMORY_EVICTION_POOL_SIZE 为16 */
     ep = zmalloc(sizeof(*ep)*MAXMEMORY_EVICTION_POOL_SIZE);
@@ -3846,6 +3892,13 @@ struct evictionPoolEntry *evictionPoolAlloc(void) {
     return ep;
 }
 
+/*
+这是freeMemoryIfNeeded（）的辅助函数，
+它用于在每次我们想要过期一个键时用一些条目填充evictionPool
+1. 添加空闲时间小于当前某个键的键。
+2. 如果有空闲条目，则总是添加键
+我们按升序在位置上插入键，因此空闲时间较小的键在左侧，而空闲时间较大的键在右侧
+*/
 /* This is an helper function for freeMemoryIfNeeded(), it is used in order
  * to populate the evictionPool with a few entries every time we want to
  * expire a key. Keys with idle time smaller than one of the current
@@ -3861,9 +3914,14 @@ void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEn
     dictEntry *_samples[EVICTION_SAMPLES_ARRAY_SIZE];
     dictEntry **samples;
 
+    /*
+     尝试使用静态缓冲区：这个函数很受欢迎
+     注意：这实际上是有帮助的
+    */
     /* Try to use a static buffer: this function is a big hit...
      * Note: it was actually measured that this helps. */
     if (server.maxmemory_samples <= EVICTION_SAMPLES_ARRAY_SIZE) {
+        //当随机抽样的精度 小于16时
         samples = _samples;
     } else {
         samples = zmalloc(sizeof(samples[0])*server.maxmemory_samples);
@@ -3876,18 +3934,26 @@ void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEn
         robj *o;
         dictEntry *de;
 
-        de = samples[j];
+        de = samples[j]; //当前采样的元素
         key = dictGetKey(de);
+
+        /*
+         如果我们采样的字典不是主字典（而是过期字典），
+         我们需要在键字典中再次查找键以获得值对象。
+        */
         /* If the dictionary we are sampling from is not the main
          * dictionary (but the expires one) we need to lookup the key
          * again in the key dictionary to obtain the value object. */
         if (sampledict != keydict) de = dictFind(keydict, key);
         o = dictGetVal(de);
+        //获取对象空闲时间间隔
         idle = estimateObjectIdleTime(o);
 
         /* Insert the element inside the pool.
          * First, find the first empty bucket or the first populated
          * bucket that has an idle time smaller than our idle time. */
+        //首先，找到空闲时间小于空闲时间的第一个空桶或第一个已填充的桶
+        // 也就是当前空闲时间 小于 k处元素空闲时间
         k = 0;
         while (k < MAXMEMORY_EVICTION_POOL_SIZE &&
                pool[k].key &&
@@ -3895,26 +3961,47 @@ void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEn
         if (k == 0 && pool[MAXMEMORY_EVICTION_POOL_SIZE-1].key != NULL) {
             /* Can't insert if the element is < the worst element we have
              * and there are no empty buckets. */
+            //如果元素<最差的元素，并且没有空桶，就不能插入
+            //这里的元素 应该是指  当前采样的元素
+
+            // pool[MAXMEMORY_EVICTION_POOL_SIZE-1].key != NULL 代表没有空元素
+            //第一个 都不满足   第一个的空闲时间大于 当前采样元素
             continue;
         } else if (k < MAXMEMORY_EVICTION_POOL_SIZE && pool[k].key == NULL) {
             /* Inserting into empty position. No setup needed before insert. */
+            /* 插入空位置。插入前不需要设置*/
         } else {
+            //插入在中间。现在k指向第一个比要插入的元素大的元素
             /* Inserting in the middle. Now k points to the first element
              * greater than the element to insert.  */
             if (pool[MAXMEMORY_EVICTION_POOL_SIZE-1].key == NULL) {
                 /* Free space on the right? Insert at k shifting
                  * all the elements from k to end to the right. */
+
+                //在右边还有空闲空间？有的话就在第k处插入，将所有从k开始的元素向右移动
+
+                //比如 k 是 5
+                // 从5开始的 都挪到 6开始的地方
+                // 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
+                // 1 2 3 4 5 k  6 7 8 9  10 11 12 13 14 15 
+                //要挪动 16 -5 -1 = 10个元素
                 memmove(pool+k+1,pool+k,
                     sizeof(pool[0])*(MAXMEMORY_EVICTION_POOL_SIZE-k-1));
             } else {
                 /* No free space on right? Insert at k-1 */
+                //在右边没有空闲空间了，那就插在k-1 位置处
                 k--;
                 /* Shift all elements on the left of k (included) to the
                  * left, so we discard the element with smaller idle time. */
+                // 将k（包括）左边的所有元素移到左边，这样我们就丢弃了空闲时间较小的元素
                 sdsfree(pool[0].key);
+                //从1 开始的往前挪一个位置 挪动k个元素
+                //比如 1 2 3 4 5
+                // k=3 那么就把 2 3 4 挪到1处 变成 2 3 4 k 5
                 memmove(pool,pool+1,sizeof(pool[0])*k);
             }
         }
+        //在k处插入当前元素
         pool[k].key = sdsdup(key);
         pool[k].idle = idle;
     }
@@ -3952,13 +4039,17 @@ int freeMemoryIfNeeded(void) {
         listRewind(server.slaves,&li);
         while((ln = listNext(&li))) {
             client *slave = listNodeValue(ln);
+            /*
+                计算从服务的输出缓冲所使用的内存
+            */
             unsigned long obuf_bytes = getClientOutputBufferMemoryUsage(slave);
             if (obuf_bytes > mem_used)
                 mem_used = 0;
             else
-                mem_used -= obuf_bytes;
+                mem_used -= obuf_bytes; //移除从服务的输出缓存空间
         }
     }
+    /*移除aof占用的空间*/
     if (server.aof_state != AOF_OFF) {
         mem_used -= sdslen(server.aof_buf);
         mem_used -= aofRewriteBufferSize();
@@ -3978,10 +4069,10 @@ int freeMemoryIfNeeded(void) {
     /*计算 需要释放多少内存 */
     mem_tofree = mem_used - server.maxmemory;
     mem_freed = 0;
-    latencyStartMonitor(latency);
+    latencyStartMonitor(latency); //开始记录时间
     while (mem_freed < mem_tofree) {
         int j, k, keys_freed = 0;
-
+        /*每个数据库*/
         for (j = 0; j < server.dbnum; j++) {
             long bestval = 0; /* just to prevent warning */
             sds bestkey = NULL;
@@ -3989,6 +4080,9 @@ int freeMemoryIfNeeded(void) {
             redisDb *db = server.db+j;
             dict *dict;
 
+            /*策略 是 lru 或者 random的时候*/
+            // MAXMEMORY_ALLKEYS_LRU 3 /* 当内存不足以容纳新写入数据时，在键空间中，移除最近最少使用的key*/
+            // MAXMEMORY_ALLKEYS_RANDOM 4 /*当内存不足以容纳新写入数据时，在键空间中，随机移除某个key。*/
             if (server.maxmemory_policy == MAXMEMORY_ALLKEYS_LRU ||
                 server.maxmemory_policy == MAXMEMORY_ALLKEYS_RANDOM)
             {
@@ -4002,6 +4096,7 @@ int freeMemoryIfNeeded(void) {
             if (server.maxmemory_policy == MAXMEMORY_ALLKEYS_RANDOM ||
                 server.maxmemory_policy == MAXMEMORY_VOLATILE_RANDOM)
             {
+                //在指定的键空间内 获取随机key
                 de = dictGetRandomKey(dict);
                 bestkey = dictGetKey(de);
             }
@@ -4010,18 +4105,29 @@ int freeMemoryIfNeeded(void) {
             else if (server.maxmemory_policy == MAXMEMORY_ALLKEYS_LRU ||
                 server.maxmemory_policy == MAXMEMORY_VOLATILE_LRU)
             {
+
+                //lru 的算法
+
                 struct evictionPoolEntry *pool = db->eviction_pool;
 
+                //当bestkey为空的时候
                 while(bestkey == NULL) {
+                    //一个数据库一个池
+                    //dict 为采样的 有可能是expire或者dict键空间
+                    //db->dict 为 键空间
                     evictionPoolPopulate(dict, db->dict, db->eviction_pool);
                     /* Go backward from best to worst element to evict. */
+                    /* 从最好的元素(空闲时间最大的)到最差的元素往回走 */
                     for (k = MAXMEMORY_EVICTION_POOL_SIZE-1; k >= 0; k--) {
                         if (pool[k].key == NULL) continue;
+                        //从采样的空间中获取当前要过期的键
                         de = dictFind(dict,pool[k].key);
 
                         /* Remove the entry from the pool. */
+                        /* 从池中移除*/
                         sdsfree(pool[k].key);
                         /* Shift all elements on its right to left. */
+                        /* 将其右侧的所有元素向左移动 */
                         memmove(pool+k,pool+k+1,
                             sizeof(pool[0])*(MAXMEMORY_EVICTION_POOL_SIZE-k-1));
                         /* Clear the element on the right which is empty
@@ -4029,6 +4135,7 @@ int freeMemoryIfNeeded(void) {
                         pool[MAXMEMORY_EVICTION_POOL_SIZE-1].key = NULL;
                         pool[MAXMEMORY_EVICTION_POOL_SIZE-1].idle = 0;
 
+                        /*如果key存在，那就是我们的选择 否则它就是一个幽灵，我们需要尝试下一个元素*/
                         /* If the key exists, is our pick. Otherwise it is
                          * a ghost and we need to try the next element. */
                         if (de) {
@@ -4047,11 +4154,14 @@ int freeMemoryIfNeeded(void) {
                 for (k = 0; k < server.maxmemory_samples; k++) {
                     sds thiskey;
                     long thisval;
-
+                    //当 策略是MAXMEMORY_VOLATILE_TTL 时 dict是expires 字典
                     de = dictGetRandomKey(dict);
                     thiskey = dictGetKey(de);
-                    thisval = (long) dictGetVal(de);
+                    //值为过期时间
+                    thisval = (long) dictGetVal(de);    
 
+
+                    /*尽早过期（minor Expire unix timestamp）是删除的最佳选择*/
                     /* Expire sooner (minor expire unix timestamp) is better
                      * candidate for deletion */
                     if (bestkey == NULL || thisval < bestval) {
@@ -4061,6 +4171,7 @@ int freeMemoryIfNeeded(void) {
                 }
             }
 
+            /*最后移除选择的key*/
             /* Finally remove the selected key. */
             if (bestkey) {
                 long long delta;
@@ -4075,15 +4186,16 @@ int freeMemoryIfNeeded(void) {
                  *
                  * AOF and Output buffer memory will be freed eventually so
                  * we only care about memory used by the key space. */
-                delta = (long long) zmalloc_used_memory();
+                delta = (long long) zmalloc_used_memory();//减之前算一次
                 latencyStartMonitor(eviction_latency);
                 dbDelete(db,keyobj); //减内存
                 latencyEndMonitor(eviction_latency);
                 latencyAddSampleIfNeeded("eviction-del",eviction_latency);
                 latencyRemoveNestedEvent(latency,eviction_latency);
-                delta -= (long long) zmalloc_used_memory();
+                delta -= (long long) zmalloc_used_memory(); //减之后算一次
                 mem_freed += delta; //加上 释放的差
                 server.stat_evictedkeys++;
+                //通知 发送消息
                 notifyKeyspaceEvent(NOTIFY_EVICTED, "evicted",
                     keyobj, db->id);
                 decrRefCount(keyobj);
@@ -4202,7 +4314,7 @@ void usage(void) {
     fprintf(stderr,"       ./redis-server --port 7777 --slaveof 127.0.0.1 8888\n");
     fprintf(stderr,"       ./redis-server /etc/myredis.conf --loglevel verbose\n\n");
     fprintf(stderr,"Sentinel mode:\n");
-    fprintf(stderr,"       ./redis-server /etc/sentinel.conf --sentinel\n");
+    fprintf(stderr,"       ./redis-server /etc/sentinel.conf --sentinel\n"); //加上--sentinel才知道是运行哨兵模式
     //如果status非0，通常表示程序异常结束，或者发生了某些错误情况。
     //具体非0值的意义可以由程序自定义，但通常不同的非0值会代表不同类型的错误或异常情况。
     exit(1);
@@ -4447,6 +4559,7 @@ int redisIsSupervised(int mode) {
     return 0;
 }
 
+
 // Redis2 主从复制（全量同步，部分重同步），哨兵机制（2.8）高可用方案
 // Redis3 Redis Cluster  (redis设计与实现里说redis3 更新主要与redis的多机功能有关)
 // Redis4 持久化机制,RDB持久化 AOF持久化 混合持久化
@@ -4470,6 +4583,8 @@ int redisIsSupervised(int mode) {
 // 15） cluster nodes命令得到加速。 可以谈谈怎么加速的
 // 16） Jemalloc更新到4.0.3版本。
 int main(int argc, char **argv) {
+
+
     /* 可以这样启动 echo "\r\ndaemonize yes" | ./redis-server - */
     
     /*
@@ -4583,6 +4698,12 @@ int main(int argc, char **argv) {
 
     /*
     将可执行路径和参数存储在安全的地方，以便以后能够重新启动服务器。
+
+    通常包含程序可执行文件的完整路径（绝对路径），例如：
+    Linux/Unix 系统：/home/user/projects/a.out
+    Windows 系统：C:\\Programs\\demo.exe
+
+    //用当前工作目录 和 程序的第一个参数 连接
     */
     /* Store the executable path and arguments in a safe place in order
      * to be able to restart the server later. */
@@ -4593,7 +4714,7 @@ int main(int argc, char **argv) {
     server.exec_argv = zmalloc(sizeof(char*) * (argc+1));
     server.exec_argv[argc] = NULL;
     /*zstrdup 内幕是memcpy */
-    for (j = 0; j < argc; j++) server.exec_argv[j] = zstrdup(argv[j]);
+    for (j = 0; j < argc; j++) server.exec_argv[j] = zstrdup(argv[j]); //这边没有使用sds
 
     /*
     我们现在需要初始化sentinel，因为在sentinel模式下解析配置文件将会用要监视的主节点填充sentinel数据结构。
@@ -4624,6 +4745,8 @@ int main(int argc, char **argv) {
 
     if (argc >= 2) {
         j = 1; /* First option to parse in argv[] */
+        //使用sds
+        //后续要连接参数就方便了 使用sdscat
         sds options = sdsempty();
         char *configfile = NULL;
 

@@ -253,14 +253,14 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CLIENT_MONITOR (1<<2) /* 这个客户端是一个slave监测， This client is a slave monitor, see MONITOR */
 #define CLIENT_MULTI (1<<3)   /* This client is in a MULTI context */
 #define CLIENT_BLOCKED (1<<4) /*客户端在等待阻塞操作 The client is waiting in a blocking operation */
-#define CLIENT_DIRTY_CAS (1<<5) /* Watched keys modified. EXEC will fail. */
-#define CLIENT_CLOSE_AFTER_REPLY (1<<6) /* Close after writing entire reply. */
-#define CLIENT_UNBLOCKED (1<<7) /* This client was unblocked and is stored in
+#define CLIENT_DIRTY_CAS (1<<5) /* 监视键修改 Watched keys modified. EXEC will fail. */
+#define CLIENT_CLOSE_AFTER_REPLY (1<<6) /* 写完整个回复后关闭 Close after writing entire reply. */
+#define CLIENT_UNBLOCKED (1<<7) /* 该客户端已解除阻塞，并存储在server.unblocked_clients中 This client was unblocked and is stored in
                                   server.unblocked_clients */
 #define CLIENT_LUA (1<<8) /* This is a non connected client used by Lua */
 #define CLIENT_ASKING (1<<9)     /* Client issued the ASKING command */
 #define CLIENT_CLOSE_ASAP (1<<10)/* 立马关闭这个客户端 Close this client ASAP */
-#define CLIENT_UNIX_SOCKET (1<<11) /* Client connected via Unix domain socket */
+#define CLIENT_UNIX_SOCKET (1<<11) /* 通过unix domain socket连接 Client connected via Unix domain socket */
 #define CLIENT_DIRTY_EXEC (1<<12)  /* EXEC将在排队时因错误而失败 EXEC will fail for errors while queueing */
 #define CLIENT_MASTER_FORCE_REPLY (1<<13)  /* Queue replies even if is master */
 #define CLIENT_FORCE_AOF (1<<14)   /* Force AOF propagation of current cmd. */
@@ -274,8 +274,8 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CLIENT_PENDING_WRITE (1<<21) /* 客户端有输出要发送，但还没有安装写处理程序 Client has output to send but a write
                                         handler is yet njot installed. */
 #define CLIENT_REPLY_OFF (1<<22)   /* Don't send replies to client. */
-#define CLIENT_REPLY_SKIP_NEXT (1<<23)  /* Set CLIENT_REPLY_SKIP for next cmd */
-#define CLIENT_REPLY_SKIP (1<<24)  /* Don't send just this reply. */
+#define CLIENT_REPLY_SKIP_NEXT (1<<23)  /* 为下个命令设置CLIENT_REPLY_SKIP Set CLIENT_REPLY_SKIP for next cmd */
+#define CLIENT_REPLY_SKIP (1<<24)  /* 仅仅不发这个回复 Don't send just this reply. */
 #define CLIENT_LUA_DEBUG (1<<25)  /* Run EVAL in debug mode. */
 #define CLIENT_LUA_DEBUG_SYNC (1<<26)  /* EVAL debugging without fork() */
 
@@ -495,6 +495,10 @@ embstr 中 robj 和 sds 在内存中是连续的，可以使用 malloc 方法一
 而 raw 存储形式不一样，它会进行两次 malloc 分配，内存释放需要两次调用，robj 和 SDS 在内存地址上一般是不连续的。内存上紧挨的好处有很多，
 例如这边能减少 malloc / free 的调用，
 读取性能更好，内存碎片率会更低，内存寻址只用一次，访问局部性原理
+
+● embstr：一次 malloc 分配 robj + sdshdr8 + sdslen + \0
+● raw：robj 跟 sds 是分别 malloc 的
+https://www.yuque.com/enjoy-binbin/blog/tnc0i7#GYK5U
 */
 typedef struct redisObject {
     //// 4 bits 表示类型，例如 String / List / Set / Zset / Hash / Module / Stream
@@ -502,7 +506,7 @@ typedef struct redisObject {
     //// 4 bits 表示编码，例如 String 根据前面的例子可以有 raw / embstr / int 等编码方式
     unsigned encoding:4;
     //// (LRU_BITS 24) 24 bits  LRU / LFU 相关
-    unsigned lru:LRU_BITS; /* lru time (relative to server.lruclock) */
+    unsigned lru:LRU_BITS; /*lru时间 跟server.lruclock相关 lru time (relative to server.lruclock) */
     // 对象是可以共享的，这是个引用计数器，32 bits
     int refcount;
     //// 8 bytes (64-bit system)，指向具体实际对象的指针地址
@@ -654,7 +658,7 @@ typedef struct client {
     size_t sentlen;         /* 当前缓冲已经发送的字节数或者正在发送的对象 Amount of bytes already sent in the current
                                buffer or object being sent. */
     time_t ctime;           /* 客户端创建时间 Client creation time. */
-    time_t lastinteraction; /* 最后活跃时间 Time of the last interaction, used for timeout */
+    time_t lastinteraction; /* readQueryFromClient的时候会更新 从客户端读取后 最后活跃时间 Time of the last interaction, used for timeout */
     time_t obuf_soft_limit_reached_time;
     int flags;              /* 客户端标记 Client flags: CLIENT_* macros. */
     int authenticated;      /* 当需要密码的时候 When requirepass is non-NULL. */
@@ -829,7 +833,7 @@ struct redisServer {
     int port;                   /* TCP listening port */
     int tcp_backlog;            /* TCP listen() backlog */
     char *bindaddr[CONFIG_BINDADDR_MAX]; /* 16 Addresses we should bind to */
-    int bindaddr_count;         /* Number of addresses in server.bindaddr[] */
+    int bindaddr_count;         /* 在server.bindaddr中地址的数量 Number of addresses in server.bindaddr[] */
     char *unixsocket;           /* UNIX socket path */
     mode_t unixsocketperm;      /* UNIX socket permission */
     int ipfd[CONFIG_BINDADDR_MAX]; /* tcp socket文件描述符 TCP socket file descriptors */ /*CONFIG_BINDADDR_MAX 默认为16*/
@@ -860,18 +864,18 @@ struct redisServer {
                         *rpopCommand, *sremCommand, *execCommand, *expireCommand,
                         *pexpireCommand;
     /* Fields used only for stats */
-    time_t stat_starttime;          /* Server start time */
-    long long stat_numcommands;     /* Number of processed commands */
-    long long stat_numconnections;  /* Number of connections received */
-    long long stat_expiredkeys;     /* Number of expired keys */
-    long long stat_evictedkeys;     /* Number of evicted keys (maxmemory) */
-    long long stat_keyspace_hits;   /* Number of successful lookups of keys */
-    long long stat_keyspace_misses; /* Number of failed lookups of keys */
-    size_t stat_peak_memory;        /* Max used memory record */
-    long long stat_fork_time;       /* Time needed to perform latest fork() */
-    double stat_fork_rate;          /* Fork rate in GB/sec. */
+    time_t stat_starttime;          /* 服务器启动时间 Server start time */
+    long long stat_numcommands;     /* 处理命令的数量 Number of processed commands */
+    long long stat_numconnections;  /* 接收连接的数量 Number of connections received */
+    long long stat_expiredkeys;     /* 过期键的数量 Number of expired keys */
+    long long stat_evictedkeys;     /* 淘汰键的数量 Number of evicted keys (maxmemory) */
+    long long stat_keyspace_hits;   /* 成功查找键的次数 Number of successful lookups of keys */
+    long long stat_keyspace_misses; /* 失败查找键的次数 Number of failed lookups of keys */
+    size_t stat_peak_memory;        /* 最大使用内存记录 Max used memory record */
+    long long stat_fork_time;       /* 执行最近一次fork所需的时间 Time needed to perform latest fork() */
+    double stat_fork_rate;          /* fork速率，单位为GB/秒 Fork rate in GB/sec. */
     long long stat_rejected_conn;   /*客户端被拒绝了 因为达到最大客户端限制了 Clients rejected because of maxclients */
-    long long stat_sync_full;       /* Number of full resyncs with slaves. */
+    long long stat_sync_full;       /* 与slave完全同步的次数 Number of full resyncs with slaves. */
     long long stat_sync_partial_ok; /* Number of accepted PSYNC requests. */
     long long stat_sync_partial_err;/* Number of unaccepted PSYNC requests. */
     list *slowlog;                  /* SLOWLOG list of commands */ //双端链表
@@ -1016,7 +1020,7 @@ struct redisServer {
     unsigned int maxclients;            /* Max number of simultaneous clients */
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
     int maxmemory_policy;           /* 键淘汰策略 Policy for key eviction */
-    int maxmemory_samples;          /* Pricision of random sampling */
+    int maxmemory_samples;          /* 随机抽样的精度 Pricision of random sampling */
     /* Blocked clients */
     unsigned int bpop_blocked_clients; /* Number of clients blocked by lists */
     list *unblocked_clients; /* list of clients to unblock before next loop */
@@ -1104,7 +1108,7 @@ struct redisCommand {
      * Used for Redis Cluster redirect. */
     redisGetKeysProc *getkeys_proc;
     /* What keys should be loaded in background when calling this command? */
-    int firstkey; /* The first argument that's a key (0 = no keys) */
+    int firstkey; /* 第一个参数是一个key The first argument that's a key (0 = no keys) */
     int lastkey;  /* The last argument that's a key */
     int keystep;  /* The step between first and last key */
     long long microseconds, calls;

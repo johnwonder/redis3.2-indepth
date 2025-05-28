@@ -82,8 +82,11 @@ void memtest_progress_end(void) {
 }
 
 void memtest_progress_step(size_t curr, size_t size, char c) {
+
+    //curr 为当前
     size_t chars = ((unsigned long long)curr*progress_full)/size, j;
 
+    //打印A
     for (j = 0; j < chars-progress_printed; j++) printf("%c",c);
     progress_printed = chars;
     fflush(stdout);
@@ -98,6 +101,8 @@ void memtest_progress_step(size_t curr, size_t size, char c) {
 */
 int memtest_addressing(unsigned long *l, size_t bytes, int interactive) {
     //字节总数 除以 unsigned long 所占用的字节
+
+    //也就是 有多少个unsigned long
     unsigned long words = bytes/sizeof(unsigned long);
     unsigned long j, *p;
 
@@ -109,11 +114,16 @@ int memtest_addressing(unsigned long *l, size_t bytes, int interactive) {
         *p = (unsigned long)p;
         p++;
         //65536 64mb
+        //当j是65536  的倍数是才会输出
+        //按位与操作，等价于 j % 65536（取 j 的低 16 位），用于检测 j 是否为 ‌65536 的倍数
         if ((j & 0xffff) == 0 && interactive)
             memtest_progress_step(j,words*2,'A'); //
     }
+
+    //这里的words*2 我的理解是因为这里循环了两次words 所以总的是要打印words*2 2025/05/19
+
     /* Test */
-    /*测试*/
+    /*测试 地址的值*/
     p = l;
     for (j = 0; j < words; j++) {
         if (*p != (unsigned long)p) {
@@ -159,6 +169,7 @@ void memtest_fill_random(unsigned long *l, size_t bytes, int interactive) {
         l1 = l+off;
         l2 = l1+words;
         for (w = 0; w < iwords; w++) {
+            //针对rout赋值
             xorshift64star_next();
             *l1 = *l2 = (unsigned long) rout;
             l1 += step;
@@ -351,7 +362,7 @@ int memtest_preserving_test(unsigned long *m, size_t bytes, int passes) {
 void memtest_alloc_and_test(size_t megabytes, int passes) {
     //这里转换成mb
     size_t bytes = megabytes*1024*1024;
-    //分配空间
+    //分配参数中传入的字节数
     unsigned long *m = malloc(bytes);
 
     if (m == NULL) {

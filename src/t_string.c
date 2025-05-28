@@ -460,6 +460,7 @@ void incrbyfloatCommand(client *c) {
     rewriteClientCommandArgument(c,2,new);
 }
 
+/*append命令处理*/
 void appendCommand(client *c) {
     size_t totlen;
     robj *o, *append;
@@ -475,6 +476,8 @@ void appendCommand(client *c) {
         totlen = stringObjectLen(c->argv[2]);
     } else {
         /* Key exists, check type */
+        //如果不是字符串类型就直接返回
+        //内部会给到客户端错误
         if (checkType(c,o,OBJ_STRING))
             return;
 
@@ -484,6 +487,7 @@ void appendCommand(client *c) {
         if (checkStringLength(c,totlen) != C_OK)
             return;
 
+        /*追加值*/
         /* Append the value */
         o = dbUnshareStringValue(c->db,c->argv[1],o);
         o->ptr = sdscatlen(o->ptr,append->ptr,sdslen(append->ptr));

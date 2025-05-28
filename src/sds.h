@@ -98,29 +98,38 @@ uint8_t 适合 二进制数据存储（如图像像素、网络协议） 位掩�
 ● 因为原本的 unsigned int len，能够表示的数值其实也有限，因为这个类型的数字最大也只能表示到 0~4294967295，显然如果是一个更大的字符串（这种情况下，SDS 上限为 4GB），就无法表示。issue: #757 (Remove 512 MB max value limit)
 */
 struct __attribute__ ((__packed__)) sdshdr8 {
+
+    //这个header头3个字节
     uint8_t len; /* used  已使用长度，用1字节存储 */ 
     uint8_t alloc; /* 总长度  excluding the header and null terminator  */
     unsigned char flags; /*  低3位存储类型，高5位预留 3 lsb（Least Significant Bit） of type, 5 unused bits */
     char buf[];
 };
 struct __attribute__ ((__packed__)) sdshdr16 {
+
+    //5个字节
     uint16_t len; /* used 已使用长度，用2字节存储  */
     uint16_t alloc; /* 为buf分配的总长度（是不包含header和NULL结束符的） excluding the header and null terminator */
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
     char buf[];
 };
 struct __attribute__ ((__packed__)) sdshdr32 {
+    //9个字节
     uint32_t len; /* used  已使用长度，用4字节存储  */
     uint32_t alloc; /* 为buf分配的总长度（是不包含header和NULL结束符的） excluding the header and null terminator */
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
     char buf[];
 };
 struct __attribute__ ((__packed__)) sdshdr64 {
+    //17个字节
     uint64_t len; /* used 已使用长度，用8字节存储  */
     uint64_t alloc; /* 为buf分配的总长度（是不包含header和NULL结束符的） excluding the header and null terminator */
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
     char buf[];
 };
+//https://github.com/redis/redis/pull/2509 这个pr优化了 sds size classes - memory optimization
+//而内存分配器 jemalloc/tcmalloc 等分配内存大小的单位（字节）都是 2、4、8、16、32、64 等等（这些数字叫做 bin），为了能容纳一个完整的 embstr 对象，jemalloc 最少会分配 32 字节的空间（16 < 19 < 32），这边的 19 是 redisObject 16 + sdshdr8 3 得出的。如果字符串再稍微长一点，那就是 64 字节的空间。如果总体超出了 64 字节，Redis 认为它是一个大字符串对象，不再使用 emdstr 编码存储，而会使用 raw 编码。
+//而之所以选择了 64 字节，应该是因为大部分情况下 CPU Cache Line 也是 64 字节，刚好 CPU 一次访问内存就可以读到数据（能够更好利用 CPU 缓存）
 
 //5种类型（长度1字节、2字节、4字节、8字节、小于1字节）的SDS至少要用3位来存储类型（2的3次方=8）,
 //1个字节8位，剩余的5位存储长度，可以满足长度小于32的短字符串
@@ -319,6 +328,13 @@ sds sdsRemoveFreeSpace(sds s);
 size_t sdsAllocSize(sds s);
 void *sdsAllocPtr(sds s);
 
+/*
+将SDS使用的分配器导出到使用SDS的程序中。
+有时候，链接到SDS的程序可能使用一组不同的分配器，
+但是可能想要分配或释放SDS将分别释放或分配的东西
+
+为了在使用分配内存的时候 不直接调用s_malloc
+*/
 /* Export the allocator used by SDS to the program using SDS.
  * Sometimes the program SDS is linked to, may use a different set of
  * allocators, but may want to allocate or free things that SDS will

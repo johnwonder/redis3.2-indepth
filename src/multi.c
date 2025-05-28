@@ -76,6 +76,10 @@ void discardTransaction(client *c) {
     unwatchAllKeys(c);
 }
 
+/*
+ 将事务标记为DIRTY_EXEC，这样EXEC就会失败
+  当命令入队的时候有错误时应该每次调用
+*/
 /* Flag the transacation as DIRTY_EXEC so that EXEC will fail.
  * Should be called every time there is an error while queueing a command. */
 void flagTransaction(client *c) {
