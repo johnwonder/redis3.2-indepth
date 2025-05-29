@@ -1870,6 +1870,7 @@ void initServerConfig(void) {
     server.commands = dictCreate(&commandTableDictType,NULL); //
     server.orig_commands = dictCreate(&commandTableDictType,NULL);
     /*把命令表放入 commands 和 orig_commands 两个字典*/
+    /*会标记命令为 写命令 还是读命令 */
     populateCommandTable();
 
     //从server.commands中寻找
@@ -2573,17 +2574,31 @@ void preventCommandReplication(client *c) {
  * The following flags can be passed:
  * CMD_CALL_NONE        No flags. 没有标记
  * CMD_CALL_SLOWLOG     Check command speed and log in the slow log if needed. 检查命令速度
- * CMD_CALL_STATS       Populate command stats. 
- * CMD_CALL_PROPAGATE_AOF   Append command to AOF if it modified the dataset
- *                          or if the client flags are forcing propagation. 强制传播
- * CMD_CALL_PROPAGATE_REPL  Send command to salves if it modified the dataset
- *                          or if the client flags are forcing propagation.
- * CMD_CALL_PROPAGATE   Alias for PROPAGATE_AOF|PROPAGATE_REPL.
+ * CMD_CALL_STATS       Populate command stats.  填充命令统计信息
+ * CMD_CALL_PROPAGATE_AOF   Append command to AOF if it modified the dataset 如果修改了数据集那么 追加命令到AOF文件 
+ *                          or if the client flags are forcing propagation.  或者 客户端标记 强制传播
+ * CMD_CALL_PROPAGATE_REPL  Send command to salves if it modified the dataset 如果修改了数据集那么 发送给从服务
+ *                          or if the client flags are forcing propagation. 或者 客户端标记 强制传播
+ * CMD_CALL_PROPAGATE   Alias for PROPAGATE_AOF|PROPAGATE_REPL. 别名
  * CMD_CALL_FULL        Alias for SLOWLOG|STATS|PROPAGATE.
  *
+ *  确切的传播行为取决于客户端标志
  * The exact propagation behavior depends on the client flags.
  * Specifically:
- *
+ * 
+ * 1. 如果设置了客户端标志CLIENT_FORCE_AOF或CLIENT_FORCE_REPL，
+ *    并假设在调用标志中设置了相应的CMD_CALL_PROPAGATE_AOF/REPL，则即使数据集不受命令影响，也会传播命令
+ * 
+ * 2.如果设置了客户机标志CLIENT_PREVENT_REPL_PROP或CLIENT_PREVENT_AOF_PROP，
+ *   则即使命令修改了数据集，也不会执行向AOF或从服务器的传播
+ * 
+ * 请注意，无论客户端标志是什么，如果没有设置CMD_CALL_PROPAGATE_AOF或CMD_CALL_PROPAGATE_REPL，则分别不会发生AOF或从属传播
+ * 客户端标志可以通过使用以下API实现给定命令来修改
+ * forceCommandPropagation(client *c, int flags);
+ * preventCommandPropagation(client *c);
+ * preventCommandAOF(client *c);
+ * preventCommandReplication(client *c);
+ * 
  * 1. If the client flags CLIENT_FORCE_AOF or CLIENT_FORCE_REPL are set
  *    and assuming the corresponding CMD_CALL_PROPAGATE_AOF/REPL is set
  *    in the call flags, then the command is propagated even if the
@@ -2606,22 +2621,33 @@ void preventCommandReplication(client *c) {
  *
  */
 void call(client *c, int flags) {
+
+    //事务执行的时候会调用
+    //脚本执行的时候会调用
+    //常规命令的执行
+
+    //flags 为 CMD_CALL_FULL CMD_CALL_SLOWLOG | CMD_CALL_STATS | CMD_CALL_PROPAGATE
+
     long long dirty, start, duration;
+    //客户端旧标记
     int client_old_flags = c->flags;
 
     /* 如果存在monitors 在monitor模式下发送命令到客户端*/
+    /* 命令标记不是 CMD_SKIP_MONITOR 且不是 CMD_ADMIN */
+    /*只有当命令不是 从aof读取出来的*/
     /* Sent the command to clients in MONITOR mode, only if the commands are
      * not generated from reading an AOF. */
     if (listLength(server.monitors) &&
         !server.loading &&
         !(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN)))
     {
+        //复制 当前命令参数 给到监控者们
         replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
     }
 
     /**
      *  清除必须由命令按需设置的标志
-     * 
+     * 初始化数组以进行其他命令传播
      * 
      */
     /* Initialization: clear the flags that must be set by the command on
@@ -2640,6 +2666,7 @@ void call(client *c, int flags) {
     //持续时间
     duration = ustime()-start;
     dirty = server.dirty-dirty;
+
     if (dirty < 0) dirty = 0;
 
 
@@ -2672,14 +2699,18 @@ void call(client *c, int flags) {
     }
 
     //传播AOF和复制
+    // 就是调用标志 没有 CMD_CALL_PROPAGATE_AOF或CMD_CALL_PROPAGATE_REPL 那么就不会propagate
     /* Propagate the command into the AOF and replication link */
     if (flags & CMD_CALL_PROPAGATE &&
         (c->flags & CLIENT_PREVENT_PROP) != CLIENT_PREVENT_PROP)
     {
+        //初始化传播标记为none
         int propagate_flags = PROPAGATE_NONE;
 
         /* Check if the command operated changes in the data set. If so
          * set for replication / AOF propagation. */
+         /* 检查所操作的命令是否在数据集中发生了变化。如果是，设置为复制/ AOF传播 */
+         /* 像publish命令就不会让服务dirty*/
         if (dirty) propagate_flags |= (PROPAGATE_AOF|PROPAGATE_REPL);
 
         /* If the client forced AOF / replication of the command, set
@@ -2688,19 +2719,22 @@ void call(client *c, int flags) {
         if (c->flags & CLIENT_FORCE_AOF) propagate_flags |= PROPAGATE_AOF;
 
         
-        //但是，如果命令implementino调用preventCommandPropagation（）或类似命令，则阻止AOF/复制传播
-        //或者如果我们没有call（）标志
+        //但是，如果命令实现调用preventCommandPropagation（）或类似命令
+        //或者如果我们call方法没有调用标志
+        //则阻止AOF/复制传播
+        //
         /* However prevent AOF / replication propagation if the command
-         * implementatino called preventCommandPropagation() or similar,
+         * implementatino(应该是implementation) called preventCommandPropagation() or similar,
          * or if we don't have the call() flags to do so. */
         if (c->flags & CLIENT_PREVENT_REPL_PROP ||
             !(flags & CMD_CALL_PROPAGATE_REPL))
                 propagate_flags &= ~PROPAGATE_REPL;
+        
         if (c->flags & CLIENT_PREVENT_AOF_PROP ||
             !(flags & CMD_CALL_PROPAGATE_AOF))
                 propagate_flags &= ~PROPAGATE_AOF;
 
-        //传播给从服务器
+        //传播给从服务器 至少 AOF 或者 replication 复制
         /* Call propagate() only if at least one of AOF / replication
          * propagation is needed. */
         if (propagate_flags != PROPAGATE_NONE)
@@ -2860,7 +2894,9 @@ int processCommand(client *c) {
     }
 
     /*
-        当持久化有问题时不接受写入命令
+        当前是主服务
+        且持久化有问题时不接受写入命令 或者ping命令
+        //rdb 或者aof
     */
     /* Don't accept write commands if there are problems persisting on disk
      * and if this is a master instance. */
@@ -2874,7 +2910,7 @@ int processCommand(client *c) {
     {
         flagTransaction(c);
         if (server.aof_last_write_status == C_OK)
-            addReply(c, shared.bgsaveerr);
+            addReply(c, shared.bgsaveerr); //如果是aof没问题 ，那就是rdb有问题
         else
             addReplySds(c,
                 sdscatprintf(sdsempty(),
@@ -2883,6 +2919,9 @@ int processCommand(client *c) {
         return C_OK;
     }
 
+    /*
+        如果没有足够好的从服务器，并且用户配置了min-slaves-to-write选项，则不要接受写命令
+    */
     /* Don't accept write commands if there are not enough good slaves and
      * user configured the min-slaves-to-write option. */
     if (server.masterhost == NULL &&
@@ -2896,6 +2935,10 @@ int processCommand(client *c) {
         return C_OK;
     }
 
+    /*
+        如果只有一个只读的slave 那就不接受写命令
+        但是如果是master 那就接受写命令
+    */
     /* Don't accept write commands if this is a read only slave. But
      * accept write commands if this is our master. */
     if (server.masterhost && server.repl_slave_ro &&
@@ -2906,6 +2949,7 @@ int processCommand(client *c) {
         return C_OK;
     }
 
+    /*如果是pubsub 且 当前不是pubsub相关的命令时 会返回错误*/
     /* Only allow SUBSCRIBE and UNSUBSCRIBE in the context of Pub/Sub */
     if (c->flags & CLIENT_PUBSUB &&
         c->cmd->proc != pingCommand &&
@@ -2917,6 +2961,10 @@ int processCommand(client *c) {
         return C_OK;
     }
 
+    /*
+        只有当slave-server-stale-data为no，
+        并且我们是一个与主服务器断开链接的从服务器时，才允许INFO和SLAVEOF
+    */
     /* Only allow INFO and SLAVEOF when slave-serve-stale-data is no and
      * we are a slave with a broken link with master. */
     if (server.masterhost && server.repl_state != REPL_STATE_CONNECTED &&
@@ -2928,6 +2976,9 @@ int processCommand(client *c) {
         return C_OK;
     }
 
+    /*
+        当前如果在loading 但是命令没有标记为loading
+    */
     /* Loading DB? Return an error if the command has not the
      * CMD_LOADING flag. */
     if (server.loading && !(c->cmd->flags & CMD_LOADING)) {
@@ -2936,7 +2987,7 @@ int processCommand(client *c) {
     }
 
     /*
-        redis 正在忙于 运行脚步,只能调用 script kill 或者shutdown nosave
+        redis 正在忙于 运行脚本,只能调用 script kill 或者shutdown nosave
         Redis is busy running a script. You can only call SCRIPT KILL or SHUTDOWN NOSAVE
 
         lua_timedout 如果为1 代表已经超时
@@ -2975,7 +3026,7 @@ int processCommand(client *c) {
         addReply(c,shared.queued); //回复QUEUED
     } else {
         // 真正调用命令
-        // 传了CMD_CALL_FULL 
+        // 传了CMD_CALL_FULL  = CMD_CALL_SLOWLOG | CMD_CALL_STATS | CMD_CALL_PROPAGATE
         call(c,CMD_CALL_FULL);
         //更新全局复制偏移
         c->woff = server.master_repl_offset; //全局复制offset
@@ -3804,6 +3855,9 @@ void infoCommand(client *c) {
     addReplyBulkSds(c, genRedisInfoString(section));
 }
 
+/*
+ MONITOR 命令‌ 是一个强大的调试工具，用于实时监控 Redis 服务器接收到的‌所有客户端命令
+*/
 void monitorCommand(client *c) {
     /*如果客户蹲 已经是slave */
     /* ignore MONITOR if already slave or in monitor mode */
@@ -4178,6 +4232,14 @@ int freeMemoryIfNeeded(void) {
 
                 robj *keyobj = createStringObject(bestkey,sdslen(bestkey));
                 propagateExpire(db,keyobj);
+
+                /*
+                 我们单独计算dbDelete（）释放的内存量
+                 实际上，在AOF和复制链接中传播DEL所需的内存可能大于我们在删除键时释放的内存，
+                 但我们无法account这一点，否则我们将永远无法退出循环
+
+                 AOF和Output缓冲区内存最终将被释放，因此我们只关心键空间使用的内存
+                */
                 /* We compute the amount of memory freed by dbDelete() alone.
                  * It is possible that actually the memory needed to propagate
                  * the DEL in AOF and replication link is greater than the one
@@ -4210,6 +4272,7 @@ int freeMemoryIfNeeded(void) {
                 if (slaves) flushSlavesOutputBuffers();
             }
         }
+        //如果没有释放任何key
         if (!keys_freed) {
             latencyEndMonitor(latency);
             latencyAddSampleIfNeeded("eviction-cycle",latency);
@@ -4582,6 +4645,17 @@ int redisIsSupervised(int mode) {
 // 14） spop命令支持个数参数。
 // 15） cluster nodes命令得到加速。 可以谈谈怎么加速的
 // 16） Jemalloc更新到4.0.3版本。
+
+// 4.0 RDB-AOF 混合持久化  psync 优化 模块功能
+/*
+  增加了模块的功能, 用户可以自己扩展命令和数据结构
+  psync 优化，避免主从切换过程需要重新全量同步
+  DEL, FLUSHALL/FLUSHDB异步化，不会阻塞主线程
+  RDB-AOF 混合持久化
+  新增 MEMORY 命令
+  集群兼容 NAT / Docker
+  https://hulkdev.com/archive
+*/
 int main(int argc, char **argv) {
 
 

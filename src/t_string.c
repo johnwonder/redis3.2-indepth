@@ -90,6 +90,8 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     }
     /*设置 添加数据到字典中*/
     setKey(c->db,key,val);
+
+    //服务现在脏了 之后 可以 传播给 aof 或者rdb持久化了
     server.dirty++;
     //设置键过期
     if (expire) setExpire(c->db,key,mstime()+milliseconds);

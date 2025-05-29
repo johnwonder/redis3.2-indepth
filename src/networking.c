@@ -54,7 +54,7 @@ size_t getStringObjectSdsUsedMemory(robj *o) {
     serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
     switch(o->encoding) {
     case OBJ_ENCODING_RAW: return sdsZmallocSize(o->ptr);
-    case OBJ_ENCODING_EMBSTR: return zmalloc_size(o)-sizeof(robj); //需减去robj本身占用的内存
+    case OBJ_ENCODING_EMBSTR: return zmalloc_size(o)-sizeof(robj); //需减去robj本身占用的内存 因为embstr 是和sds一起分配的内存
     default: return 0; /* Just integer encoding for now. */
     }
 }
@@ -303,6 +303,7 @@ void _addReplyObjectToList(client *c, robj *o) {
         incrRefCount(o);
         /*添加到tail节点*/
         listAddNodeTail(c->reply,o);
+        /*内部根据 raw 和embstr 两种 算出sds使用的内存 */
         c->reply_bytes += getStringObjectSdsUsedMemory(o);
     } else {
         tail = listNodeValue(listLast(c->reply));
@@ -2177,6 +2178,8 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
  * the caller wishes. The main usage of this function currently is
  * enforcing the client output length limits. */
 unsigned long getClientOutputBufferMemoryUsage(client *c) {
+
+    //每个链表节点所占的空间
     unsigned long list_item_size = sizeof(listNode)+sizeof(robj);
 
     return c->reply_bytes + (list_item_size*listLength(c->reply));

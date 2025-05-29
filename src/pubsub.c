@@ -53,6 +53,9 @@ int clientSubscriptionsCount(client *c) {
            listLength(c->pubsub_patterns);
 }
 
+/*
+ 将客户机订阅到指定通道。如果操作成功返回1，如果客户端已订阅该通道则返回0
+*/
 /* Subscribe a client to a channel. Returns 1 if the operation succeeded, or
  * 0 if the client was already subscribed to that channel. */
 int pubsubSubscribeChannel(client *c, robj *channel) {
@@ -64,8 +67,10 @@ int pubsubSubscribeChannel(client *c, robj *channel) {
     /* Add the channel to the client -> channels hash table */
     if (dictAdd(c->pubsub_channels,channel,NULL) == DICT_OK) {
         retval = 1;
+        //添加引用计数
         incrRefCount(channel);
         /* Add the client to the channel -> list of clients hash table */
+        /*看看是否有值了*/
         de = dictFind(server.pubsub_channels,channel);
         if (de == NULL) {
             clients = listCreate();
@@ -79,11 +84,13 @@ int pubsubSubscribeChannel(client *c, robj *channel) {
         /*把当前客户端加入到链表clients尾部*/
         listAddNodeTail(clients,c);
     }
+
+    //通知客户端
     /* Notify the client */
     addReply(c,shared.mbulkhdr[3]); //*3\r\n
     addReply(c,shared.subscribebulk); //$9\r\nsubscribe\r\n
     addReplyBulk(c,channel); //类似 $9\r\nsubscribe\r\n
-    addReplyLongLong(c,clientSubscriptionsCount(c));
+    addReplyLongLong(c,clientSubscriptionsCount(c)); //这个客户端订阅的频道和模式之和
     return retval;
 }
 
@@ -95,22 +102,26 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify) {
     listNode *ln;
     int retval = 0;
 
+    /* pubsubUnsubscribeAllChannels 中 是从字典遍历获取channel*/
     /* Remove the channel from the client -> channels hash table */
-    incrRefCount(channel); /* channel may be just a pointer to the same object
+    incrRefCount(channel); /* Channel可能只是一个指向哈希表中相同对象的指针 channel may be just a pointer to the same object
                             we have in the hash tables. Protect it... */
     if (dictDelete(c->pubsub_channels,channel) == DICT_OK) {
         retval = 1;
         /* Remove the client from the channel -> clients list hash table */
+        /*从服务端的字典中删除该客户端 */
         de = dictFind(server.pubsub_channels,channel);
         serverAssertWithInfo(c,NULL,de != NULL);
         clients = dictGetVal(de);
-        ln = listSearchKey(clients,c);
+        ln = listSearchKey(clients,c);//从链表中查找当前客户端节点
         serverAssertWithInfo(c,NULL,ln != NULL);
-        listDelNode(clients,ln);
+        listDelNode(clients,ln); //删除这个
+        //如果当前频道的客户端数量为0
         if (listLength(clients) == 0) {
             /* Free the list and associated hash entry at all if this was
              * the latest client, so that it will be possible to abuse
              * Redis PUBSUB creating millions of channels. */
+            /*如果这是最新的客户端，就完全释放列表和相关的哈希条目，这样就有可能滥用Redis PUBSUB创建数百万个通道*/
             dictDelete(server.pubsub_channels,channel);
         }
     }
@@ -123,7 +134,7 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify) {
                        listLength(c->pubsub_patterns));
 
     }
-    decrRefCount(channel); /* it is finally safe to release it */
+    decrRefCount(channel); /* 最终安全的释放 it is finally safe to release it */
     return retval;
 }
 
@@ -177,16 +188,25 @@ int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
     return retval;
 }
 
+
+/*
+ 从所有频道退订。
+ 返回客户端订阅的数量
+*/
 /* Unsubscribe from all the channels. Return the number of channels the
  * client was subscribed to. */
 int pubsubUnsubscribeAllChannels(client *c, int notify) {
+
+    //当前客户端订阅的频道字典
     dictIterator *di = dictGetSafeIterator(c->pubsub_channels);
     dictEntry *de;
     int count = 0;
 
     while((de = dictNext(di)) != NULL) {
-        robj *channel = dictGetKey(de);
 
+        //这边从字典中获取channel
+        robj *channel = dictGetKey(de);
+        //退订当前channel
         count += pubsubUnsubscribeChannel(c,channel,notify);
     }
     /* We were subscribed to nothing? Still reply to the client. */
@@ -232,6 +252,7 @@ int pubsubPublishMessage(robj *channel, robj *message) {
     listNode *ln;
     listIter li;
 
+    /*发送给监听这个频道的客户端们*/
     /* Send to clients listening for that channel */
     de = dictFind(server.pubsub_channels,channel);
     if (de) {
@@ -241,13 +262,14 @@ int pubsubPublishMessage(robj *channel, robj *message) {
 
         listRewind(list,&li);
         while ((ln = listNext(&li)) != NULL) {
-            client *c = ln->value;
 
+            //给当前客户端发送消息
+            client *c = ln->value;
             addReply(c,shared.mbulkhdr[3]);
             addReply(c,shared.messagebulk);
-            addReplyBulk(c,channel);
-            addReplyBulk(c,message);
-            receivers++;
+            addReplyBulk(c,channel); //频道
+            addReplyBulk(c,message); //消息
+            receivers++; //接收者增加
         }
     }
     /* Send to clients listening to matching channels */
@@ -257,6 +279,7 @@ int pubsubPublishMessage(robj *channel, robj *message) {
         while ((ln = listNext(&li)) != NULL) {
             pubsubPattern *pat = ln->value;
 
+            //判断是否匹配 核心判断
             if (stringmatchlen((char*)pat->pattern->ptr,
                                 sdslen(pat->pattern->ptr),
                                 (char*)channel->ptr,
@@ -284,18 +307,23 @@ void subscribeCommand(client *c) {
     /*从第一个参数开始*/
     for (j = 1; j < c->argc; j++)
         pubsubSubscribeChannel(c,c->argv[j]);
+
+    //设置pubsub标记
     c->flags |= CLIENT_PUBSUB;
 }
 
 void unsubscribeCommand(client *c) {
+
+    //当参数只有一个时， 退订所有频道
     if (c->argc == 1) {
         pubsubUnsubscribeAllChannels(c,1);
     } else {
         int j;
-
+        //支持多个频道
         for (j = 1; j < c->argc; j++)
             pubsubUnsubscribeChannel(c,c->argv[j],1);
     }
+    //当订阅数量 为0时，客户端退出CLIENT_PUBSUB 模式
     if (clientSubscriptionsCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
 }
 
@@ -319,7 +347,10 @@ void punsubscribeCommand(client *c) {
     if (clientSubscriptionsCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
 }
 
+/* 用法 PUBLISH channel message */
 void publishCommand(client *c) {
+    //c->argv[1]  是频道
+    //c->argv[2]  是消息
     int receivers = pubsubPublishMessage(c->argv[1],c->argv[2]);
     if (server.cluster_enabled)
         clusterPropagatePublish(c->argv[1],c->argv[2]);

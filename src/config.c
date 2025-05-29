@@ -996,6 +996,7 @@ void configSetCommand(client *c) {
             if (server.maxmemory < zmalloc_used_memory()) {
                 serverLog(LL_WARNING,"WARNING: the new maxmemory value set via CONFIG SET is smaller than the current memory usage. This will result in keys eviction and/or inability to accept new write commands depending on the maxmemory-policy.");
             }
+            //配置设置的时候 也会释放内存
             freeMemoryIfNeeded();
         }
     } config_set_memory_field("repl-backlog-size",ll) {

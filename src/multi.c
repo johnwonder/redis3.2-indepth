@@ -52,6 +52,7 @@ void freeClientMultiState(client *c) {
     zfree(c->mstate.commands);
 }
 
+/*添加一个新命令到multi 命令队列*/
 /* Add a new command into the MULTI commands queue */
 void queueMultiCommand(client *c) {
     multiCmd *mc;
@@ -77,6 +78,7 @@ void discardTransaction(client *c) {
 }
 
 /*
+ 如果是MULTI
  将事务标记为DIRTY_EXEC，这样EXEC就会失败
   当命令入队的时候有错误时应该每次调用
 */

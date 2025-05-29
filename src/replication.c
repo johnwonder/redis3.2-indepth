@@ -298,7 +298,7 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
     } else {
         cmdrepr = sdscatprintf(cmdrepr,"[%d %s] ",dictid,getClientPeerId(c));
     }
-
+    //遍历命令参数
     for (j = 0; j < argc; j++) {
         if (argv[j]->encoding == OBJ_ENCODING_INT) {
             cmdrepr = sdscatprintf(cmdrepr, "\"%ld\"", (long)argv[j]->ptr);
@@ -312,6 +312,7 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
     cmdrepr = sdscatlen(cmdrepr,"\r\n",2);
     cmdobj = createObject(OBJ_STRING,cmdrepr);
 
+    //遍历monitors
     listRewind(monitors,&li);
     while((ln = listNext(&li))) {
         client *monitor = ln->value;
