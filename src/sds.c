@@ -424,6 +424,7 @@ sds sdsRemoveFreeSpace(sds s) {
     //结构体本身的长度
     hdrlen = sdsHdrSize(type);
     if (oldtype==type) {
+        // 使用realloc 重新分配hdrlen+len+1长度的空间
         newsh = s_realloc(sh, hdrlen+len+1);
         if (newsh == NULL) return NULL;
         s = (char*)newsh+hdrlen;

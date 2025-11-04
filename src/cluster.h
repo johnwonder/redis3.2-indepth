@@ -41,11 +41,11 @@ struct clusterNode;
 
 /* clusterLink encapsulates everything needed to talk with a remote node. */
 typedef struct clusterLink {
-    mstime_t ctime;             /* Link creation time */
-    int fd;                     /* TCP socket file descriptor */
+    mstime_t ctime;             /* 创建时间 Link creation time */
+    int fd;                     /* tcp socket文件描述符 TCP socket file descriptor */
     sds sndbuf;                 /* 发送的包缓存 Packet send buffer */
-    sds rcvbuf;                 /* Packet reception buffer */
-    struct clusterNode *node;   /* Node related to this link if any, or NULL */
+    sds rcvbuf;                 /* 包接收缓冲 Packet reception buffer */
+    struct clusterNode *node;   /* 跟这个link相关的集群节点 Node related to this link if any, or NULL */
 } clusterLink;
 
 /* Cluster node flags and macros. */
@@ -89,7 +89,7 @@ typedef struct clusterNode {
     uint64_t configEpoch; /* Last configEpoch observed for this node */
     unsigned char slots[CLUSTER_SLOTS/8]; /* slots handled by this node */
     int numslots;   /* Number of slots handled by this node */
-    int numslaves;  /* Number of slave nodes, if this is a master */
+    int numslaves;  /* 从节点的数量，如果这个是master的话 Number of slave nodes, if this is a master */
     struct clusterNode **slaves; /* 指向从节点的指针集合 pointers to slave nodes */
     struct clusterNode *slaveof; /* pointer to the master node. Note that it
                                     may be NULL even if the node is a slave
@@ -98,7 +98,7 @@ typedef struct clusterNode {
     mstime_t ping_sent;      /* 发送最后ping 的unix时间戳 Unix time we sent latest ping */
     mstime_t pong_received;  /* 收到pong的时间 Unix time we received the pong */
     mstime_t fail_time;      /* fail标记设置的时间 Unix time when FAIL flag was set */
-    mstime_t voted_time;     /* Last time we voted for a slave of this master */
+    mstime_t voted_time;     /* 我们为这个master的一个从机投票的最新时间 Last time we voted for a slave of this master */
     mstime_t repl_offset_time;  /* Unix time we received offset for this node */
     mstime_t orphaned_time;     /* Starting time of orphaned master condition */
     long long repl_offset;      /* Last known repl offset for this node. */
@@ -108,16 +108,47 @@ typedef struct clusterNode {
     list *fail_reports;         /* List of nodes signaling this as failing */
 } clusterNode;
 
+/*
+  在server.cluster中会保存集群状态clusterState结构体，
+  是集群中最主要的数据结构，记录集群状态，其中跟槽有关的属性是：
+*/
 typedef struct clusterState {
+
+    /*当前节点*/
     clusterNode *myself;  /* This node  当前节点*/
     uint64_t currentEpoch;
     int state;            /* 集群状态 CLUSTER_OK, CLUSTER_FAIL, ... */
     int size;             /* 至少有一个槽位的主节点个数 Num of master nodes with at least one slot */
     dict *nodes;          /* 名称->集群节点的 hash表 Hash table of name -> clusterNode structures */
     dict *nodes_black_list; /* Nodes we don't re-add for a few seconds. */
+
+    /*当前节点负责的对应槽位，正在迁出到哪个节点*/
     clusterNode *migrating_slots_to[CLUSTER_SLOTS]; //CLUSTER_SLOTS = 16384
+
+    /*当前节点正在从对应节点，迁入对应槽位*/
     clusterNode *importing_slots_from[CLUSTER_SLOTS];
+
+    //slots数组记录了每个槽位，在当前节点的视角里，分别由集群中哪个节点负责，
+    //比如server->cluster.slots[0] = node 代表0号槽由node节点负责。
     clusterNode *slots[CLUSTER_SLOTS]; //槽数组
+
+    /*
+      5.0以前是一个skip list,跳表中以槽位号座位分数进行排序。
+      5.0改成了rax tree,前缀树
+      7.0改成了dict元数据,每个槽后面是挂了一个字典，字典里
+      存储了对应槽拥有的所有键。新实现下可以节省大概20%左右的内存，并且添加和删除键的写性能能
+      提升50%左右，不过访问和更新现有键的性能会大概降低5-10%左右。
+    
+      通过这些属性，可以快速知道某个槽位由哪个节点负责，以及它的迁入迁出对象节点，
+      以及某个键会落在哪个槽位上。
+
+      skiplist实现的 slots_to_keys:
+      在dbAdd中，如果是集群模式会调用slotToKeyAdd往跳表中添加节点：计算出哈希槽，然后把它作为分数，
+       把键作为成员，插入到跳表中。
+
+       在dbDelete中，如果是集群模式会调用slotToKeyDel从跳表中删除节点：一样计算出哈希槽，用分数和成员去匹配跳表
+       节点进行删除。
+    */
     zskiplist *slots_to_keys;
     /*以下字段用于在选举中获取从属状态*/
     /* The following fields are used to take the slave state on elections. */
@@ -143,7 +174,7 @@ typedef struct clusterState {
     /* master使用以下字段在选举中获取状态 */
     /* The followign fields are used by masters to take state on elections. */
     uint64_t lastVoteEpoch;     /* 最后一次投票通过的时代 Epoch of the last vote granted. */
-    int todo_before_sleep; /* Things to do in clusterBeforeSleep(). */
+    int todo_before_sleep; /*在clusterBeforeSleep()之前调用 Things to do in clusterBeforeSleep(). */
     long long stats_bus_messages_sent;  /* Num of msg sent via cluster bus. */
     long long stats_bus_messages_received; /* Num of msg rcvd via cluster bus.*/
 } clusterState;

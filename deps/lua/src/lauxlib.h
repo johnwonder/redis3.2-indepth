@@ -108,6 +108,15 @@ LUALIB_API const char *(luaL_findtable) (lua_State *L, int idx,
 
 #define luaL_typename(L,i)	lua_typename(L, lua_type(L,(i)))
 
+
+//首先调用 
+
+//loadfile 进行词法和语法分析，pcall用于将第一步中分析的结果放到
+//虚拟机中执行。
+//luaL_loadfile 成功的话返回0  所以会执行后面的lua_pcall函数
+
+//lua_pcall 将第一步分析的结果（也就是字节码）放大虚拟机中执行。
+
 #define luaL_dofile(L, fn) \
 	(luaL_loadfile(L, fn) || lua_pcall(L, 0, LUA_MULTRET, 0))
 

@@ -77,7 +77,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
  * As a side effect(副作用) of calling this function:
  * 1. A key gets expired if it reached it's TTL. //一个键过期 如果达到它的TTL(Time To Live)
  * 2. The key last access time is updated. //key的最后访问时间会更新
- * 3. The global keys hits/misses stats are updated (reported in INFO). //全局key hit/miss 会更新
+ * 3. The global keys hits/misses stats are updated (reported in INFO). //全局key hit/miss 命中和未命中会更新
  *
  * 当我们在获得链接到键的对象后写入键时，不应该使用这个API，而应该只用于只读操作
  * This API should not be used when we write to the key after obtaining
@@ -135,6 +135,8 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
             server.current_client->cmd &&
             server.current_client->cmd->flags & CMD_READONLY)
         {
+            //命令的标记 是通过命令列表里的flag指定的
+            //如果当前 客户端不是我们的主服务器 且命令的标记为readonly 那就返回空
             return NULL;
         }
     }
@@ -181,7 +183,9 @@ robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
 void dbAdd(redisDb *db, robj *key, robj *val) {
 
     /* 这里如果是小于32字节的字符串的时候 会编码为sdshdr5 类型的  */
-    sds copy = sdsdup(key->ptr);
+    //这里会啥要复制一个字符串呢 我的理解是因为在 freeClientArgv 的时候 因为key这个对象的引用计数为1 所以会释放
+    //但是 这边的key字符串不能释放，所以要复制下
+    sds copy = sdsdup(key->ptr); 
     int retval = dictAdd(db->dict, copy, val);
 
     serverAssertWithInfo(NULL,key,retval == DICT_OK);
@@ -189,6 +193,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     if (val->type == OBJ_LIST) signalListAsReady(db, key);
 
     /*集群模式*/
+    /*计算出key对应所属的槽位*/
     if (server.cluster_enabled) slotToKeyAdd(key);
  }
 
@@ -216,8 +221,10 @@ void setKey(redisDb *db, robj *key, robj *val) {
     } else {
         dbOverwrite(db,key,val);
     }
-    incrRefCount(val);
+    incrRefCount(val); //增加value对象的计数 这样释放客户端参数的时候会不会释放了 freeClientArgv
     removeExpire(db,key);
+
+    //发送key被修改的信号
     signalModifiedKey(db,key);
 }
 
@@ -255,6 +262,8 @@ robj *dbRandomKey(redisDb *db) {
 int dbDelete(redisDb *db, robj *key) {
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
+
+    /*因为 expires 字典是 keyptrDictType 这个类型的字典的key和value的 析构函数为空，所以不会释放key */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
     if (dictDelete(db->dict,key->ptr) == DICT_OK) {
         if (server.cluster_enabled) slotToKeyDel(key);
@@ -348,6 +357,10 @@ int selectDb(client *c, int id) {
 
 /*
 包含通知WATCH列表、通知客户端更新缓存
+
+ 每次键被修改的时候 signalModifiedKey方法就会被调用
+
+ 每次数据库被flush signalFlushDb 方法会被调用
 */
 /*-----------------------------------------------------------------------------
  * Hooks for key space changes.
@@ -402,6 +415,7 @@ void delCommand(client *c) {
 
     for (j = 1; j < c->argc; j++) {
         expireIfNeeded(c->db,c->argv[j]);
+        //内部也会删除expire字典中的对应key value 
         if (dbDelete(c->db,c->argv[j])) {
             signalModifiedKey(c->db,c->argv[j]);
             notifyKeyspaceEvent(NOTIFY_GENERIC,
@@ -415,11 +429,16 @@ void delCommand(client *c) {
 
 /* EXISTS key1 key2 ... key_N.
  * Return value is the number of keys existing. */
+/*
+
+ */
 void existsCommand(client *c) {
     long long count = 0;
     int j;
 
     for (j = 1; j < c->argc; j++) {
+        /*3.2并未解决exists这个命令 从库获取键过期的问题*/
+        /*4.0.14 中 直接调用 封装好的lookupKeyRead */
         expireIfNeeded(c->db,c->argv[j]);
         if (dbExists(c->db,c->argv[j])) count++;
     }
@@ -429,10 +448,15 @@ void existsCommand(client *c) {
 void selectCommand(client *c) {
     long id;
 
+    //参数中获取id
     if (getLongFromObjectOrReply(c, c->argv[1], &id,
         "invalid DB index") != C_OK)
         return;
 
+    /*
+        哦这里判断了
+        另外 SELECT 命令在集群中，除了 SELECT 0 外都是不允许的，因为 redis cluster 将所有键都保存在 0 号数据库中，不支持像单实例那样的多数据库
+    */
     if (server.cluster_enabled && id != 0) {
         addReplyError(c,"SELECT is not allowed in cluster mode");
         return;
@@ -825,7 +849,7 @@ void renameGenericCommand(client *c, int nx) {
         return;
     }
 
-    incrRefCount(o);
+    incrRefCount(o);//这里就增加引用计数
     expire = getExpire(c->db,c->argv[1]);
     if (lookupKeyWrite(c->db,c->argv[2]) != NULL) {
         if (nx) {
@@ -930,6 +954,7 @@ void setExpire(redisDb *db, robj *key, long long when) {
     dictEntry *kde, *de;
 
     /* Reuse the sds from the main dict in the expire dict */
+    /*在expire字典中 重用 主字典中的sds */
     kde = dictFind(db->dict,key->ptr);
     serverAssertWithInfo(NULL,key,kde != NULL);
     //查找原来的或者添加
@@ -956,6 +981,9 @@ long long getExpire(redisDb *db, robj *key) {
     return dictGetSignedIntegerVal(de);
 }
 
+/*
+  传播过期到从服务和aof文件
+*/
 /* Propagate expires into slaves and the AOF file.
  * When a key expires in the master, a DEL operation for this key is sent
  * to all the slaves and the AOF file if enabled.
@@ -994,7 +1022,7 @@ int expireIfNeeded(redisDb *db, robj *key) {
     if (server.loading) return 0;
 
     /*
-       如果我们是在lua脚本中，我们声称时间被阻塞到Lua脚本开始的时候。
+       如果我们是在lua脚本的上下文中，我们声称时间被阻塞到Lua脚本开始的时候。
        这样，一个键只能在第一次访问时过期，而不会在脚本执行的中间过期，
        使向slave / AOF的传播保持一致
     */
@@ -1027,13 +1055,14 @@ int expireIfNeeded(redisDb *db, robj *key) {
     if (now <= when) return 0;
 
     /* Delete the key */
+    /*调用info命令的时候显示的过期键的数量*/
     server.stat_expiredkeys++;
-    //传播过期
+    //传播过期 给aof 和 从服务
     propagateExpire(db,key);
     notifyKeyspaceEvent(NOTIFY_EXPIRED,
         "expired",key,db->id);
     
-    //删除
+    //真正删除
     return dbDelete(db,key);
 }
 

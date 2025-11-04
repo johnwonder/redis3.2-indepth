@@ -23,10 +23,15 @@ typedef LUAI_MEM l_mem;
 
 
 
-/* chars used as small naturals (so that `char' is reserved for characters) */
+/*
+
+  chars used as small naturals (so that `char' is reserved for characters)
+
+  作为小自然字符使用的字符（以便为字符保留‘ char’）
+ */
 typedef unsigned char lu_byte;
 
-
+/* 5.3.6 反而改成 #define MAX_SIZET	((size_t)(~(size_t)0)) 了。。*/
 #define MAX_SIZET	((size_t)(~(size_t)0)-2)
 
 #define MAX_LUMEM	((lu_mem)(~(lu_mem)0)-2)

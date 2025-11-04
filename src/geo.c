@@ -406,6 +406,7 @@ static int sort_gp_desc(const void *a, const void *b) {
 /* GEOADD key long lat name [long2 lat2 name2 ... longN latN nameN] */
 void geoaddCommand(client *c) {
     /* Check arguments number for sanity. */
+    /*牛逼了 判断参数个数是否符合要求*/
     if ((c->argc - 2) % 3 != 0) {
         /* Need an odd number of arguments if we got this far... */
         addReplyError(c, "syntax error. Try GEOADD key [x1] [y1] [name1] "
@@ -427,6 +428,7 @@ void geoaddCommand(client *c) {
     for (i = 0; i < elements; i++) {
         double xy[2];
 
+        /*把参数一个个提取出来*/
         if (extractLongLatOrReply(c, (c->argv+2)+(i*3),xy) == C_ERR) {
             for (i = 0; i < argc; i++)
                 if (argv[i]) decrRefCount(argv[i]);
@@ -434,6 +436,9 @@ void geoaddCommand(client *c) {
             return;
         }
 
+        /*
+         将坐标转换为元素得分
+        */
         /* Turn the coordinates into the score of the element. */
         GeoHashBits hash;
         geohashEncodeWGS84(xy[0], xy[1], GEO_STEP_MAX, &hash);

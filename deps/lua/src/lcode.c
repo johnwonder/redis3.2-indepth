@@ -24,6 +24,8 @@
 #include "ltable.h"
 
 
+//最终生成的代码使用了本文件中的功能
+
 #define hasjumps(e)	((e)->t != (e)->f)
 
 
@@ -304,6 +306,9 @@ void luaK_setoneret (FuncState *fs, expdesc *e) {
 void luaK_dischargevars (FuncState *fs, expdesc *e) {
   switch (e->k) {
     case VLOCAL: {
+      //如果一个变量是VLOCAL，说明前面已经看到过这个变量了，
+      //那么它既不需要重定向，也不需要而额外的语句把这个值加载进来的。
+      //因为 所有局部变量都会在函数栈中有一个对应的位置，所以把它的类型修改为VNONRELOC
       e->k = VNONRELOC;
       break;
     }
@@ -313,6 +318,28 @@ void luaK_dischargevars (FuncState *fs, expdesc *e) {
       break;
     }
     case VGLOBAL: {
+
+      //全局变量，例如：
+      /*
+          a= 10
+          local b = a
+
+          首先生成了OP_GETGLOBAL指令，用于获取全局变量的值到当前函数的寄存器中；
+          将类型修改为VRELOCABLE(即类型为重定向),注意在上面的代码中，OP_GETGLOBAL
+          指令的A参数目前为0，因为这个参数保存的是获取这个全局变量之后需要存放到
+          的寄存器地址，而此时不知道。
+
+          OP_GETGLOBAL 的 作用是将一个全局变量赋值到函数栈中。
+
+          之所以需要重定向，是因为当生成这个指令时，并不知道当前可用的寄存器地址，
+          即并不知道这个全局变量最后将加载到栈的哪个位置，也就是OP_GETGLOBAL指令
+          的参数A在生成 指令时还是未知的，需要到后面的discharge2reg函数中才知道，
+          因为这里寄存器地址作为这个函数的reg参数传入了。
+          
+
+          当一个变量类型是重定向时，根据reg参数来写入这个指令的参数A.
+
+      */
       e->u.s.info = luaK_codeABx(fs, OP_GETGLOBAL, 0, e->u.s.info);
       e->k = VRELOCABLE;
       break;
@@ -339,6 +366,13 @@ static int code_label (FuncState *fs, int A, int b, int jump) {
   return luaK_codeABC(fs, OP_LOADBOOL, A, b, jump);
 }
 
+/*
+  所有局部变了都有一个对应的LocVar结构体存储它的变量名信息
+  每个局部变量都会对应分配一个函数栈的位置来保存它的数据。
+  解析表达式的结果会存在expdesc结构体中。根据不同的类型，内部使用的联合体存放的数据有不同的意义
+
+*/
+
 
 static void discharge2reg (FuncState *fs, expdesc *e, int reg) {
   luaK_dischargevars(fs, e);
@@ -356,15 +390,34 @@ static void discharge2reg (FuncState *fs, expdesc *e, int reg) {
       break;
     }
     case VKNUM: {
+      //reg参数就是前面得到的寄存器索引，于是最后生成了LOADK指令，将数字10
+      //加载到reg参数对应的寄存器中
       luaK_codeABx(fs, OP_LOADK, reg, luaK_numberK(fs, e->u.nval));
       break;
     }
     case VRELOCABLE: {
+
+      /*
+        从局部变量和全局变量的获取来看，如果针对的是全局变量，
+        那么会比局部变了额外多一条GETGLOBAL指令，
+        用于将这个全局变量加载到当前函数栈中。
+      
+      */
+      
+      /*
+        这里寄存器地址作为这个函数的reg参数传入了。
+      
+        根据传入的reg参数，也就是获取到全局变量之后存放的寄存器地址，来重新回填到
+        OP_GETGLOBAL指令的A参数中。
+      */
       Instruction *pc = &getcode(fs, e);
       SETARG_A(*pc, reg);
       break;
     }
     case VNONRELOC: {
+
+      //如果一个表达式类型是VNONRELOC,也就是不需要重定位，那么直接生成MOVE指令
+      //来完成变量的赋值
       if (reg != e->u.s.info)
         luaK_codeABC(fs, OP_MOVE, reg, e->u.s.info, 0);
       break;
@@ -410,11 +463,20 @@ static void exp2reg (FuncState *fs, expdesc *e, int reg) {
   e->k = VNONRELOC;
 }
 
+//调用luaK_dischargevars函数，根据变量所在的不同作用域(local,global,upvalue)
+//来决定这个变量是否需要重定向。
 
+//将expdesc结构体信息中存储的表达式信息转换为对应的opcode
 void luaK_exp2nextreg (FuncState *fs, expdesc *e) {
   luaK_dischargevars(fs, e);
   freeexp(fs, e);
+
+  //分配可用的函数寄存器空间，得到这个空间对应的寄存器索引。有了空间，才能存储变量
   luaK_reserveregs(fs, 1);
+
+  //调用exp2reg函数 ，真正完成把表达式的数据放入寄存器空间的工作。
+  //最终会调用discharge2reg函数，根据不同的表达式类型(nil,布尔表达式，
+  //数字等) 来生成存取表达式的值到寄存器的字节码。
   exp2reg(fs, e, fs->freereg - 1);
 }
 
@@ -785,7 +847,7 @@ void luaK_fixline (FuncState *fs, int line) {
   fs->f->lineinfo[fs->pc - 1] = line;
 }
 
-
+/*指令的生成： 不管生成的是哪一种格式的指令，其最终的入口函数都是luaK_code函数*/
 static int luaK_code (FuncState *fs, Instruction i, int line) {
   Proto *f = fs->f;
   dischargejpc(fs);  /* `pc' will change */

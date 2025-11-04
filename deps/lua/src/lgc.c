@@ -23,6 +23,8 @@
 #include "ltm.h"
 
 
+// GC
+
 #define GCSTEPSIZE	1024u
 #define GCSWEEPMAX	40
 #define GCSWEEPCOST	10
@@ -273,11 +275,18 @@ static void traversestack (global_State *g, lua_State *l) {
 /*
 ** traverse one gray object, turning it to black.
 ** Returns `quantity' traversed.
+
+  遍历一个灰色物体，把它变成黑色。返回遍历的“数量”
 */
 static l_mem propagatemark (global_State *g) {
   GCObject *o = g->gray;
   lua_assert(isgray(o));
+
+  //标记为黑色
   gray2black(o);
+
+
+  //判断类型
   switch (o->gch.tt) {
     case LUA_TTABLE: {
       Table *h = gco2h(o);
@@ -403,6 +412,13 @@ static void freeobj (lua_State *L, GCObject *o) {
 
 #define sweepwholelist(L,p)	sweeplist(L,p,MAX_LUMEM)
 
+/*
+  
+ ）sweep阶段：sweep阶段则很简单，每次执⾏这个流程，从allgc链表中取出若⼲个对象。如
+果它已经是本轮GC要被清除的⽩⾊，那么它会被清除；如果不是，则标记为另⼀种⽩，以供下
+⼀轮GC使⽤。当本轮GC涉及所有的对象清理和重置完毕后，进⼊下⼀轮GC。
+ 
+*/
 
 static GCObject **sweeplist (lua_State *L, GCObject **p, lu_mem count) {
   GCObject *curr;
@@ -522,6 +538,38 @@ static void remarkupvals (global_State *g) {
 }
 
 
+/*
+
+ atomic阶段：该阶段和propagate阶段不同，atomic阶段是需要原⼦执⾏的，也就是说进⼊
+到这个阶段就必须不中断地从头执⾏到阶段结束。之所以要这么做，具体原因如下。
+①⾸先，因为GC步骤在propagate阶段是可以被中断的。也就是说，在中断的过程中，可能会
+有新的对象被创建，并且被已经标记为⿊⾊的对象引⽤。这种GC算法⿊⾊对象是不能直接引⽤
+⽩⾊对象的，因为⿊⾊对象已经标记和传播完毕，本轮GC周期内不会再对它进⾏遍历。这样被
+其引⽤的⽩⾊对象也不会被标记到。到了sweep阶段，因为新创建的对象未被标记和遍历，因
+此会被当作不可达的对象⽽清除掉，造成不可挽回的损失。
+②为此，需要在这种情况下为新创建的对象设置屏障（barrier）。屏障分两种，⼀种是向前设
+置屏障，也就是直接将新创建的对象设置为灰⾊，并放⼊gray链表；还有⼀种则是向后设置屏
+障，也就是将⿊⾊对象设置为灰⾊，然后放⼊grayagain链表。向前设置屏障的情况适⽤于已被
+标记为⿊⾊，且不会频繁改变引⽤关系的数据类型，如Lua的proto结构。⽽向后设置屏障的情
+况，适合于已被标记为⿊⾊，且会出现频繁改变引⽤关系情况的数据类型，如Lua的表结构。
+也就是说，在两次调⽤GC步骤的过程中，表中的同⼀个key可能被赋值多次value。如果把这些
+value对象均标记为灰⾊，并放⼊gray链表，那么将会造成许多⽆谓的标记和传播操作，因为这
+些value很可能不再被引⽤，需要被回收。因此，只要把已经标记为⿊⾊的表重新设置为灰⾊，
+是避开这个性能问题的良好⽅式。
+③⽽如果直接把由⿊⾊重新标记为灰⾊的表对象放⼊gray链表的话，如上所述，表的key和
+value的引⽤关系会频繁变化。这个表很可能在⿊⾊和灰⾊之间来回切换，进⾏很多重复的传
+播。为了提⾼效率，则将它放在grayagain链表中，在atomic阶段，⼀次性标记和传播完成。
+
+为什么要原⼦执⾏atomic阶段？如果atomic阶段不能原⼦执⾏，那么就和propagate阶段没有
+区别了。表从⿊⾊标记为灰⾊，放⼊grayagain链表也失去了意义。因为如果不能原⼦执⾏，那
+么该表对象很可能刚在grayagain链表中取出来，由灰⾊变⿊⾊，⽴即⼜有新的对象被它引⽤，
+⼜将它从⿊⾊变为灰⾊。因此，避免不了⼀些表实例，在⿊⾊和灰⾊之间来回切换，反复标记
+和扫描，浪费性能资源，很可能导致GC步骤在标记和传播时所处的时间过⻓，甚⾄⽆法进⼊
+sweep阶段。因此，⼲脆在atomic阶段设置为不可中断执⾏，⼀次性完成所有的标记和传播操
+作。这样，⼀个能够被频繁改变引⽤关系的表对象，在progapate阶段最多被标记和传播⼀次，
+在atomic阶段⼜被传播⼀次，⼀共两次。
+
+*/
 static void atomic (lua_State *L) {
   global_State *g = G(L);
   size_t udsize;  /* total size of userdata to be finalized */
@@ -562,6 +610,8 @@ static l_mem singlestep (lua_State *L) {
       return 0;
     }
     case GCSpropagate: {
+
+      //如果有gray对象
       if (g->gray)
         return propagatemark(g);
       else {  /* no more `gray' objects */

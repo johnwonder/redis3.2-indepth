@@ -15,6 +15,37 @@
 
 #include "luaconf.h"
 
+/*
+ 虚拟机有两种不同的实现方式：基于栈的虚拟机和基于寄存器的虚拟机
+
+ (stack-based vs register-based )
+
+ 市面上常见的虚拟机 比如java和 .net 都是基于栈的虚拟机，lua是
+ 已知的第一个使用基于寄存器虚拟机并且被广泛使用的编程语言。
+
+ 栈的优点是 指令中不需要关心操作数的地址，在执行操作之前已经将
+ 操作数准备在栈顶上了。
+
+ 与基于栈的虚拟机不同，在基于寄存器的指令中，操作数是放在"cpu的寄存器"中
+ (因为并不是物理意义上的寄存器) ，因此，同样的操作不再需要push.pop指令，
+ 取而代之的是在字节码中带上具体操作数所在的寄存器地址。
+
+ 基于寄存器的虚拟机执行这个加法操作的伪代码如下：
+ ADD R1，R2,R3 # 寄存器R1与R2的相加结果保存在寄存器R3中
+
+ 可以看到，对比基于栈的寄存器，这里只需要一条指令就可以完成加法操作，
+ 但缺点是此时程序需要关注操作数所在的位置。
+
+ Lua使用的是基于寄存器的虚拟机实现方式，其中很大的原因是它的设计目标之一
+ 就是尽可能高效。
+
+ 总结下，实现一个脚本语言的解释器，其核心问题如下：
+ 1.设计一套字节码，分析源代码文件生成字节码。
+ 2.在虚拟机中执行字节码。
+ 3.如何在整个执行过程中保存整个执行环境。
+
+*/
+
 
 #define LUA_VERSION	"Lua 5.1"
 #define LUA_RELEASE	"Lua 5.1.5"
@@ -68,6 +99,17 @@ typedef void * (*lua_Alloc) (void *ud, void *ptr, size_t osize, size_t nsize);
 
 /*
 ** basic types
+   在Lua一开始的设计中，主要有以下几种类型：数字(使用double类型表示),
+   字符串，关联表，nil，userdata,Lua函数以及C函数。一开始，并没有加入
+   布尔类型的数据，同时Lua函数和C函数是分开表示的。
+
+   演进到5.1.4版本时，加入了THREAD类型以及布尔类型，
+   同时也将两种函数合并到了一起
+
+   其中LUA_TLIGHTUSERDATA和LUA_TUSERDATA一样，对应的都是void*指针，
+   区别在于前者的分配释放由Lua外部的使用者完成，而后者则是通过Lua内部来完成的。
+
+   换言之，前者不需要Lua关心它的生存期，由使用者自己去关注，后者则反之。
 */
 #define LUA_TNONE		(-1)
 
@@ -83,7 +125,10 @@ typedef void * (*lua_Alloc) (void *ud, void *ptr, size_t osize, size_t nsize);
 
 
 
-/* minimum Lua stack available to a C function */
+/*
+   minimum Lua stack available to a C function
+   可用于C函数的最小Lua堆栈
+ */
 #define LUA_MINSTACK	20
 
 
@@ -282,6 +327,7 @@ LUA_API void lua_setallocf (lua_State *L, lua_Alloc f, void *ud);
 
 /*
 ** compatibility macros and functions
+   兼容性宏和函数
 */
 
 #define lua_open()	luaL_newstate()

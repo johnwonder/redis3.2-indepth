@@ -34,6 +34,8 @@
 #include "lstate.h"
 #include "ltable.h"
 
+// 表操作
+
 
 /*
 ** max size of array part is 2^MAXBITS
@@ -41,12 +43,21 @@
 #if LUAI_BITSINT > 26
 #define MAXBITS		26
 #else
-#define MAXBITS		(LUAI_BITSINT-2)
+/* 16 -2 = 14*/
+#define MAXBITS		(LUAI_BITSINT-2) 
 #endif
 
 #define MAXASIZE	(1 << MAXBITS)
 
 
+//#define lmod(s,size) \
+	(check_exp((size&(size-1))==0, (cast(int, (s) & ((size)-1)))))
+
+/*
+
+ #define twoto(x)	(1<<(x))
+#define sizenode(t)	(twoto((t)->lsizenode))
+*/
 #define hashpow2(t,n)      (gnode(t, lmod((n), sizenode(t))))
   
 #define hashstr(t,str)  hashpow2(t, (str)->tsv.hash)
@@ -185,24 +196,62 @@ int luaH_next (lua_State *L, Table *t, StkId key) {
 ** ==============================================================
 */
 
+/*
+  这个函数的输入参数nums是前面已经计算好的计数数组
+  narray存放的是前面计算得到的数字键值的数量，这是一个指针
+  说明会在这个函数中修改，最后作为重新散列操作时数组部分的大小
 
+  原理就是循环遍历数字键值部分，找到满足前面提到的条件的最大值；
+  该范围内的数据满足大于50%的值。
+*/
 static int computesizes (int nums[], int *narray) {
   int i;
   int twotoi;  /* 2^i */
   int a = 0;  /* number of elements smaller than 2^i */
   int na = 0;  /* number of elements to go to array part */
   int n = 0;  /* optimal size for array part */
+
+  /*首先twotoi 为1，i=0 ,a = 0 ,表示循环到目前为止数据小于2^i的数据数量*/
+
+  /*
+     i =0, nums[i] = 1,twotoi = 1,a += nums[i] =1,此时满足a > twotoi/2
+  
+     但是当i = 5,nums[i] = 1, twotoi = 32, a+= nums = 3,此时不满足a > twotoi/2的条件
+     因此维持na和a不变
+
+     当循环结束时，可以发现遍历完毕nums数组时，最后一次记录的位置是3，也就是说1,2,3,
+     这三个元素落在了数组部分，而20则落在了 散列桶部分，数组的大小是3
+
+     i= 0, twotoi = 1,
+     i= 1, twotoi = 2,
+     i= 2, twotoi = 4,
+     i= 3, twotoi = 8,
+     i= 4, twotoi = 16,
+     i= 5, twotoi = 32,
+  */
+
   for (i = 0, twotoi = 1; twotoi/2 < *narray; i++, twotoi *= 2) {
+
+    //nums[i] 记录的是 key 在 2^i-1 和 2^i的数量
+
+    //比如 i 到达2 后 a 就是 key 1-4的数量  此时twotoi=4  a > twotoi/2 就是 key 1-4的数量 > 2
+    
+    //所以i 对应 twotoi 就是 
     if (nums[i] > 0) {
       a += nums[i];
-      if (a > twotoi/2) {  /* more than half elements present? */
-        n = twotoi;  /* optimal size (till now) */
-        na = a;  /* all elements smaller than n will go to array part */
+
+      if (a > twotoi/2) {  /* 超过一半的元素存在 more than half elements present? */
+        n = twotoi;  /* 最优尺寸（至今） optimal size (till now) */
+        na = a;  /* 所有小于n的元素都会放到数组部分 all elements smaller than n will go to array part */
       }
     }
-    if (a == *narray) break;  /* all elements already counted */
+    if (a == *narray) break;  /* 所有元素已经计算 all elements already counted */
   }
   *narray = n;
+
+  //保证
+  //落到数组的 部分 必须大于等于 扩张后数组总大小的一半
+  //且落到数组的部分 必须小于等于 扩张后数组的总大小
   lua_assert(*narray/2 <= na && na <= *narray);
   return na;
 }
@@ -211,6 +260,8 @@ static int computesizes (int nums[], int *narray) {
 static int countint (const TValue *key, int *nums) {
   int k = arrayindex(key);
   if (0 < k && k <= MAXASIZE) {  /* is `key' an appropriate array index? */
+
+    /* 比如 key = 1的 情况 那么就是 nums[0] ++ */
     nums[ceillog2(k)]++;  /* count as such */
     return 1;
   }
@@ -219,13 +270,21 @@ static int countint (const TValue *key, int *nums) {
 }
 
 
+/*
+  nums[0] : (0.5,1]
+  nums[1] : (1,2]
+  nums[2] : (2,4]
+  nums[3] : (4,8]
+  nums[4] : (8,16]
+*/
+
 static int numusearray (const Table *t, int *nums) {
   int lg;
   int ttlg;  /* 2^lg */
-  int ause = 0;  /* summation of `nums' */
+  int ause = 0;  /* nums数组的和 summation of `nums' */
   int i = 1;  /* count to traverse all array keys */
   for (lg=0, ttlg=1; lg<=MAXBITS; lg++, ttlg*=2) {  /* for each slice */
-    int lc = 0;  /* counter */
+    int lc = 0;  /* counter 计数器 */
     int lim = ttlg;
     if (lim > t->sizearray) {
       lim = t->sizearray;  /* adjust upper limit */
@@ -233,12 +292,27 @@ static int numusearray (const Table *t, int *nums) {
         break;  /* no more elements to count */
     }
     /* count elements in range (2^(lg-1), 2^lg] */
+
+    /* lg 是 5的话  i可以从 9 到 32 */
+
+    /* array[0] 对应的是key =1? */
+    /*难道是因为 索引映射‌：Lua 的数组索引从 1 开始，但底层 C 数组仍从 0 开始（如 t[1] 对应 array[0] */
+
+        /*
+      nums[0] : (0.5,1]
+      nums[1] : (1,2]
+      nums[2] : (2,4]
+      nums[3] : (4,8]
+      nums[4] : (8,16]
+    */
     for (; i <= lim; i++) {
+
+      //判断当前数组索引处的元素是否为空
       if (!ttisnil(&t->array[i-1]))
         lc++;
     }
     nums[lg] += lc;
-    ause += lc;
+    ause += lc; //数组中的数量
   }
   return ause;
 }
@@ -251,7 +325,7 @@ static int numusehash (const Table *t, int *nums, int *pnasize) {
   while (i--) {
     Node *n = &t->node[i];
     if (!ttisnil(gval(n))) {
-      ause += countint(key2tval(n), nums);
+      ause += countint(key2tval(n), nums); //nums的相应索引+1
       totaluse++;
     }
   }
@@ -296,9 +370,11 @@ static void setnodevector (lua_State *L, Table *t, int size) {
 
 static void resize (lua_State *L, Table *t, int nasize, int nhsize) {
   int i;
-  int oldasize = t->sizearray;
-  int oldhsize = t->lsizenode;
+  int oldasize = t->sizearray;//老的数组大小 
+  int oldhsize = t->lsizenode; //老的hash部分大小
   Node *nold = t->node;  /* save old hash ... */
+
+  //新的数组部分的大小 是否大于老的数组部分的大小
   if (nasize > oldasize)  /* array part must grow? */
     setarrayvector(L, t, nasize);
   /* create new hash part with appropriate size */
@@ -319,6 +395,8 @@ static void resize (lua_State *L, Table *t, int nasize, int nhsize) {
     if (!ttisnil(gval(old)))
       setobjt2t(L, luaH_set(L, t, key2tval(old)), gval(old));
   }
+
+  //释放旧的hash表
   if (nold != dummynode)
     luaM_freearray(L, nold, twoto(oldhsize), Node);  /* free old array */
 }
@@ -332,20 +410,71 @@ void luaH_resizearray (lua_State *L, Table *t, int nasize) {
 
 static void rehash (lua_State *L, Table *t, const TValue *ek) {
   int nasize, na;
+
+  //分配一个位图nums,将其中的所有位置设置为0
+  //nums数组中第i个元素存放的是key在2^(i-1) 和 2^i的元素数量。
   int nums[MAXBITS+1];  /* nums[i] = number of keys between 2^(i-1) and 2^i */
   int i;
   int totaluse;
   for (i=0; i<=MAXBITS; i++) nums[i] = 0;  /* reset counts */
+
+  //遍历lua表中的数组部分，计算其中的元素数量，更新对应的nums数组中
+  //的元素数量
   nasize = numusearray(t, nums);  /* count keys in array part */
   totaluse = nasize;  /* all those keys are integer keys */
+
+  //遍历lua表中的散列桶部分，因为其中也可能存放了正整数，需要根据这里的
+  //正整数数量更新对应的nums数组元素数量(numusehash函数)
   totaluse += numusehash(t, nums, &nasize);  /* count keys in hash part */
   /* count extra key */
+  /*计算额外的键*/
   nasize += countint(ek, nums);
   totaluse++;
   /* compute new size for array part */
+  /*
+     此时nums数组已经有了当前这个table中所有正整数的分配统计
+     逐个遍历nums数组，获得其范围区间内所包含的整数数量大于50%的最大索引，
+     作为重新散列之后的数组大小， 超过这个范围的正整数，
+     就分配到散列桶部分了。
+   */
+
+  /**/
   na = computesizes(nums, &nasize);
   /* resize the table to new computed sizes */
+  /*调整表*/
+
+  
   resize(L, t, nasize, totaluse - na);
+
+  //在重新散列的过程中，除了增大lua表的大小以容纳新的数据之外，
+  //还希望能借此机会对原有的数组和散列桶部分进行调整，让两部分都尽可能发挥
+  //其存储的最高容纳效率。
+
+  //那么这里的标准是什么呢？希望在调整过后，数组在每一个2次方位置容纳的
+  //元素数量都超过该范围的50%。能达到这个目标的话，我们就认为这个数组范围发挥了
+  //最大的效率。
+
+
+  //设想一个场景来模拟前面的算法流程。假设现在有个lua表，经过一些变化后，
+  //它的数组有以下的元素：1,2,3,20。首先，算法将计算这些key被分配到了哪些区间。
+  //在这个算法里，我们使用数组来保存落在每个范围内的数据数量，
+  //其中每个元素存放的是key在2^i-1 和2^i之间的元素数量。
+
+  /*
+     前面关于数字键值的统计跑完之后，得到的结果是：
+     nums[0] = 1 1落在此区间
+     nums[1] = 1 (2落在此区间)
+     nums[2] = 1 (3落在此区间)
+
+     nums[3] = 0 
+     nums[4] = 0 
+     nums[5] = 1 （20落在此区间)
+
+     nums[6] = 0
+     (其中n > 5 且n <= MAXBITS)
+  */
+
+
 }
 
 
@@ -390,13 +519,27 @@ static Node *getfreepos (Table *t) {
 
 
 /*
+  整个过程都是在散列桶部分进行的，理由是即使key是一个数字，
+  也已经在调用newkey函数之前进行了查找，结果卻没有找到，
+  所以这个key都会进入散列桶部分来查找
+
+*/
+/*
 ** inserts a new key into a hash table; first, check whether key's main 
 ** position is free. If not, check whether colliding node is in its main 
 ** position or not: if it is not, move colliding node to an empty place and 
 ** put new key in its main position; otherwise (colliding node is in its main 
 ** position), new key goes to an empty position. 
+
+  在哈希表中插入一个新键；首先，检查钥匙的主要位置是否空闲。
+  如果不是，检查碰撞节点是否在主位置，
+  如果不是，将碰撞节点移动到空位置，并在主位置放置新键；
+  否则（碰撞节点在其主位置），新键将移至空位置
 */
 static TValue *newkey (lua_State *L, Table *t, const TValue *key) {
+
+  //根据key来查找其所在散列桶的mainposition
+  //也就是当前key需要的位置
   Node *mp = mainposition(t, key);
   if (!ttisnil(gval(mp)) || mp == dummynode) {
     Node *othern;
@@ -406,17 +549,28 @@ static TValue *newkey (lua_State *L, Table *t, const TValue *key) {
       return luaH_set(L, t, key);  /* re-insert key into grown table */
     }
     lua_assert(n != dummynode);
+
+    //当前位置上的key 应该存放的位置
     othern = mainposition(t, key2tval(mp));
+    /*碰撞节点是否偏离他需要的位置 */
     if (othern != mp) {  /* is colliding node out of its main position? */
+
+      /*移动碰撞节点到自由位置*/
       /* yes; move colliding node into free position */
       while (gnext(othern) != mp) othern = gnext(othern);  /* find previous */
+
+
       gnext(othern) = n;  /* redo the chain with `n' in place of `mp' */
+
+      /*拷贝碰撞节点到空闲位置*/
       *n = *mp;  /* copy colliding node into free pos. (mp->next also goes) */
       gnext(mp) = NULL;  /* now `mp' is free */
       setnilvalue(gval(mp));
     }
     else {  /* colliding node is in its own main position */
+      /*碰撞节点在它自己的主位置*/
       /* new node will go into free position */
+      /* 新节点将进入空闲位置 */
       gnext(n) = gnext(mp);  /* chain new position */
       gnext(mp) = n;
       mp = n;
@@ -431,11 +585,12 @@ static TValue *newkey (lua_State *L, Table *t, const TValue *key) {
 
 /*
 ** search function for integers
+   5.3版本 int key 改为 lua_Integer
 */
 const TValue *luaH_getnum (Table *t, int key) {
   /* (1 <= key && key <= t->sizearray) */
   if (cast(unsigned int, key-1) < cast(unsigned int, t->sizearray))
-    return &t->array[key-1];
+    return &t->array[key-1]; //返回数组中的元素 
   else {
     lua_Number nk = cast_num(key);
     Node *n = hashnum(t, nk);
@@ -470,10 +625,11 @@ const TValue *luaH_get (Table *t, const TValue *key) {
   switch (ttype(key)) {
     case LUA_TNIL: return luaO_nilobject;
     case LUA_TSTRING: return luaH_getstr(t, rawtsvalue(key));
+
     case LUA_TNUMBER: {
       int k;
       lua_Number n = nvalue(key);
-      lua_number2int(k, n);
+      lua_number2int(k, n); //直接强转
       if (luai_numeq(cast_num(k), nvalue(key))) /* index is int? */
         return luaH_getnum(t, k);  /* use specialized version */
       /* else go through */
@@ -490,20 +646,37 @@ const TValue *luaH_get (Table *t, const TValue *key) {
   }
 }
 
-
+/*
+  5.3 luaH_setstr 函数改用luaH_set
+  luaH_setnum 5.3改用luaH_setint 
+  luaH_set ,luaH_setnum,luaH_setstr 3个函数
+  他们的实际行为并不在其函数内部对key所对应的数据进行添加或者修改，
+  而是返回根据key查找到的TValue指针，由外部的使用者来进行实际的替换操作
+*/
 TValue *luaH_set (lua_State *L, Table *t, const TValue *key) {
+
+  //先查找
   const TValue *p = luaH_get(t, key);
-  t->flags = 0;
+  t->flags = 0; //5.3没有这句
   if (p != luaO_nilobject)
     return cast(TValue *, p);
   else {
+    //判断key的类型
     if (ttisnil(key)) luaG_runerror(L, "table index is nil");
     else if (ttisnumber(key) && luai_numisnan(nvalue(key)))
       luaG_runerror(L, "table index is NaN");
+    //当找不到对应的key时，这几个API最终都会调用内部的newkey函数来分配
+    //一个新的key来返回
     return newkey(L, t, key);
   }
 }
-
+/*
+ 5.3 luaH_setstr 函数改用luaH_set 
+ luaH_setnum 5.3改用luaH_setint
+  luaH_set ,luaH_setnum,luaH_setstr 3个函数
+  他们的实际行为并不在其函数内部对key所对应的数据进行添加或者修改，
+  而是返回根据key查找到的TValue指针，由外部的使用者来进行实际的替换操作
+*/
 
 TValue *luaH_setnum (lua_State *L, Table *t, int key) {
   const TValue *p = luaH_getnum(t, key);
@@ -512,11 +685,19 @@ TValue *luaH_setnum (lua_State *L, Table *t, int key) {
   else {
     TValue k;
     setnvalue(&k, cast_num(key));
+    //当找不到对应的key时，这几个API最终都会调用内部的newkey函数来分配
+    //一个新的key来返回
     return newkey(L, t, &k);
   }
 }
 
-
+/*
+  5.3 luaH_setstr 函数改用luaH_set 
+  luaH_setnum 5.3改用luaH_setint
+  luaH_set ,luaH_setnum,luaH_setstr 3个函数
+  他们的实际行为并不在其函数内部对key所对应的数据进行添加或者修改，
+  而是返回根据key查找到的TValue指针，由外部的使用者来进行实际的替换操作
+*/
 TValue *luaH_setstr (lua_State *L, Table *t, TString *key) {
   const TValue *p = luaH_getstr(t, key);
   if (p != luaO_nilobject)
@@ -524,6 +705,8 @@ TValue *luaH_setstr (lua_State *L, Table *t, TString *key) {
   else {
     TValue k;
     setsvalue(L, &k, key);
+    //当找不到对应的key时，这几个API最终都会调用内部的newkey函数来分配
+    //一个新的key来返回
     return newkey(L, t, &k);
   }
 }
@@ -552,6 +735,13 @@ static int unbound_search (Table *t, unsigned int j) {
   return i;
 }
 
+/*
+  如果表存在数组部分：
+    在数组部分二分查找返回位置i,其中i是满足条件t[i] != nil 且 t[i+1] = nil的最大数据
+
+  否则前面的数组部分查不到满足条件的数据，进入散列部分查找：
+    在散列桶部分二分查找返回位置i,其中i是满足条件t[i] != nil 且t[i+1] = nil的最大数据
+*/
 
 /*
 ** Try to find a boundary in table `t'. A `boundary' is an integer index
@@ -559,10 +749,12 @@ static int unbound_search (Table *t, unsigned int j) {
 */
 int luaH_getn (Table *t) {
   unsigned int j = t->sizearray;
+  //判断数组长度
   if (j > 0 && ttisnil(&t->array[j - 1])) {
     /* there is a boundary in the array part: (binary) search for it */
     unsigned int i = 0;
     while (j - i > 1) {
+      //二分查找
       unsigned int m = (i+j)/2;
       if (ttisnil(&t->array[m - 1])) j = m;
       else i = m;

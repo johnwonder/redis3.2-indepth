@@ -10,7 +10,20 @@
 
 #include "lobject.h"
 
+/*
+ 增量式垃圾收集器
 
+ pause阶段，在Lua中，包含stack变量的mainthread和global_state都是要被gc关注的
+   对象。 GC的起始点是全局变量，栈和寄存器。寄存器是在Lua的栈中模拟的，并没有特别的意义
+   因为所有的操作都是在栈桑进行的。因为mainthread和global table包含GC起始点，
+   因此它们要先插入到gray链表中，并且标记它们为灰色。这些操作结束后，就进入propagate阶段。
+
+   propagate阶段：不断从gray链表中取出object,然后把它从灰色变为黑色，再遍历它所有引用的对象，
+   并将其插入到gray链表中。 每次将一个gray链表中取出来的object标记为黑色后，需要累积这个object
+   的字节大小。当这一次gc步骤扫描的对象累积超过一定的字节数时，本轮GC步骤会被终止，
+   等待下一次GC步骤开始后，继续扫描gray链表中的对象。
+   当gray链表为空，意味着所有的gray链表均已扫描完毕，然后进入atomic阶段。
+*/
 /*
 ** Possible states of the Garbage Collector
 */

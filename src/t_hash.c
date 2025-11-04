@@ -752,9 +752,11 @@ void genericHgetallCommand(client *c, int flags) {
     int multiplier = 0;
     int length, count = 0;
 
+    /*内部会判断 是否过期 */
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL
         || checkType(c,o,OBJ_HASH)) return;
 
+    /* */
     if (flags & OBJ_HASH_KEY) multiplier++;
     if (flags & OBJ_HASH_VALUE) multiplier++;
 

@@ -22,7 +22,12 @@
 #include "lstring.h"
 #include "lvm.h"
 
+// 对象管理
 
+/*
+
+ 标记值和对象表示。先浏览一下这个。你会想要一直打开一个窗口来保存这个文件。
+*/
 
 const TValue luaO_nilobject_ = {{NULL}, LUA_TNIL};
 

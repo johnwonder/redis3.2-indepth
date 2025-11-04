@@ -10,9 +10,20 @@
 
 #include "lopcodes.h"
 
+/*
+  Lua的指令是32位的，
 
+  最低6位是操作数，由于操作数是6位的，所以Lua最多支持2^6 -1 = 63个指令
+  将每个操作数机器对应的指令格式都在lopcodes.h中的OpCode枚举类型中定义。
+
+*/
+
+// 字节码操作
+// 定义了字节码指令的格式以及相关的API
 /* ORDER OP */
 
+/* 第一个const表示指针指向的字符串内容不可修改 */
+/* 第二个const表示指针本身不可修改（始终指向同一内存地址） */
 const char *const luaP_opnames[NUM_OPCODES+1] = {
   "MOVE",
   "LOADK",
@@ -56,6 +67,10 @@ const char *const luaP_opnames[NUM_OPCODES+1] = {
 };
 
 
+//T 代表这是不是一条逻辑测试相关的指令，这种指令可能会将pc指针自增1
+//A 表示这个指令会不会赋值给R(A)
+//B/C B C参数的格式
+// mode 这个OpCode的格式
 #define opmode(t,a,b,c,m) (((t)<<7) | ((a)<<6) | ((b)<<4) | ((c)<<2) | (m))
 
 const lu_byte luaP_opmodes[NUM_OPCODES] = {

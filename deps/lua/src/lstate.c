@@ -23,6 +23,7 @@
 #include "ltable.h"
 #include "ltm.h"
 
+// 全局状态机
 
 #define state_size(x)	(sizeof(x) + LUAI_EXTRASPACE)
 #define fromstate(l)	(cast(lu_byte *, (l)) - LUAI_EXTRASPACE)
@@ -31,6 +32,8 @@
 
 /*
 ** Main thread combines a thread state and the global state
+
+   主线程 合并了 线程状态 和 全局状态
 */
 typedef struct LG {
   lua_State l;
@@ -38,18 +41,26 @@ typedef struct LG {
 } LG;
   
 
-
+//lua_State 成员的初始化操作
 static void stack_init (lua_State *L1, lua_State *L) {
-  /* initialize CallInfo array */
+  /* 
+    initialize CallInfo array 
+    初始化CallInfo数组
+  */
   L1->base_ci = luaM_newvector(L, BASIC_CI_SIZE, CallInfo);
   L1->ci = L1->base_ci;
-  L1->size_ci = BASIC_CI_SIZE;
+  L1->size_ci = BASIC_CI_SIZE; //8
   L1->end_ci = L1->base_ci + L1->size_ci - 1;
   /* initialize stack array */
   L1->stack = luaM_newvector(L, BASIC_STACK_SIZE + EXTRA_STACK, TValue);
+
+  //5.3.6 直接是BASIC_STACK_SIZE
   L1->stacksize = BASIC_STACK_SIZE + EXTRA_STACK;
   L1->top = L1->stack;
+  //5.3.6 是   L1->stack_last = L1->stack + L1->stacksize - EXTRA_STACK;
   L1->stack_last = L1->stack+(L1->stacksize - EXTRA_STACK)-1;
+
+
   /* initialize first ci */
   L1->ci->func = L1->top;
   setnilvalue(L1->top++);  /* `function' entry for this `ci' */
@@ -144,19 +155,24 @@ LUA_API lua_State *lua_newstate (lua_Alloc f, void *ud) {
   int i;
   lua_State *L;
   global_State *g;
+  //调用f内存分配函数 分配内存 state_size 中包含了 LUAI_EXTRASPACE
   void *l = (*f)(ud, NULL, 0, state_size(LG));
   if (l == NULL) return NULL;
-  L = tostate(l);
-  g = &((LG *)L)->g;
+
+  L = tostate(l); //lua_state
+  
+  //L强制转换为LG* 指针
+  g = &((LG *)L)->g; //获取 globalstate
   L->next = NULL;
-  L->tt = LUA_TTHREAD;
-  g->currentwhite = bit2mask(WHITE0BIT, FIXEDBIT);
+  L->tt = LUA_TTHREAD; //类型
+  g->currentwhite = bit2mask(WHITE0BIT, FIXEDBIT); //标记为white 和fix
   L->marked = luaC_white(g);
   set2bits(L->marked, FIXEDBIT, SFIXEDBIT);
   preinit_state(L, g);
-  g->frealloc = f;
+  g->frealloc = f; //内存分配函数
   g->ud = ud;
-  g->mainthread = L;
+  g->mainthread = L; //赋给global_state的
+
   g->uvhead.u.l.prev = &g->uvhead;
   g->uvhead.u.l.next = &g->uvhead;
   g->GCthreshold = 0;  /* mark it as unfinished state */
@@ -179,6 +195,8 @@ LUA_API lua_State *lua_newstate (lua_Alloc f, void *ud) {
   g->gcstepmul = LUAI_GCMUL;
   g->gcdept = 0;
   for (i=0; i<NUM_TAGS; i++) g->mt[i] = NULL;
+
+  //f_luaopen里 会初始化栈 
   if (luaD_rawrunprotected(L, f_luaopen, NULL) != 0) {
     /* memory allocation error: free partial state */
     close_state(L);

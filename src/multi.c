@@ -57,7 +57,7 @@ void freeClientMultiState(client *c) {
 void queueMultiCommand(client *c) {
     multiCmd *mc;
     int j;
-    //使用内存重分配
+    //使用内存重分配 多分配一个
     c->mstate.commands = zrealloc(c->mstate.commands,
             sizeof(multiCmd)*(c->mstate.count+1));
     mc = c->mstate.commands+c->mstate.count;
@@ -95,7 +95,7 @@ void multiCommand(client *c) {
         addReplyError(c,"MULTI calls can not be nested");
         return;
     }
-    //标记当前客户端
+    //标记当前客户端为事务 客户端
     c->flags |= CLIENT_MULTI;
     //回复OK
     addReply(c,shared.ok);
@@ -113,11 +113,18 @@ void discardCommand(client *c) {
     addReply(c,shared.ok);
 }
 
+/*
+ 发送一个multi命令给所有从服务 和 aof文件
+ 更多信息请查看execCommand实现
+*/
 /* Send a MULTI command to all the slaves and AOF file. Check the execCommand
  * implementation for more information. */
 void execCommandPropagateMulti(client *c) {
     robj *multistring = createStringObject("MULTI",5);
 
+    //传播给aof 或者从服务
+    //Redis 中的 ‌propagate 机制‌主要用于将写操作命令传播到从节点（主从复制）或 AOF 文件（持久化），
+    //而 ‌RDB 持久化‌是基于数据快照的机制，两者在设计目标和实现方式上有本质区别
     propagate(server.multiCommand,c->db->id,&multistring,1,
               PROPAGATE_AOF|PROPAGATE_REPL);
     decrRefCount(multistring);
@@ -138,7 +145,8 @@ void execCommand(client *c) {
 
     /*
         检查是否需要终止exec 
-        
+        在第一种情况下，失败的EXEC返回一个多批量nil对象（从技术上讲，这不是错误，而是一种特殊行为）
+        ，而在第二种情况下，返回一个EXECABORT错误
     */
     /* Check if we need to abort the EXEC because:
      * 1) Some WATCHed key was touched. 一些被观察的key 被触发了
@@ -147,12 +155,15 @@ void execCommand(client *c) {
      * A failed EXEC in the first case returns a multi bulk nil object
      * (technically it is not an error but a special behavior), while
      * in the second an EXECABORT error is returned. */
-    //当
+    //当 监视到键被修改 或者 标记了dirty_exec
+    // 就是客户端 watch key了 然后watch的键被修改的时候会标记为CLIENT_DIRTY_CAS
     //
     if (c->flags & (CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC)) {
         addReply(c, c->flags & CLIENT_DIRTY_EXEC ? shared.execaborterr :
                                                   shared.nullmultibulk);
+        //丢弃事务
         discardTransaction(c);
+        //发送给monitors
         goto handle_monitor;
     }
 
@@ -165,7 +176,7 @@ void execCommand(client *c) {
     orig_cmd = c->cmd;
     addReplyMultiBulkLen(c,c->mstate.count);
 
-    //遍历命令列表，
+    //遍历事务队列中的命令列表，
     for (j = 0; j < c->mstate.count; j++) {
         c->argc = c->mstate.commands[j].argc;
         c->argv = c->mstate.commands[j].argv;
@@ -174,17 +185,24 @@ void execCommand(client *c) {
         c->cmd = c->mstate.commands[j].cmd;
 
         /*如果不是传播 且 不是只读命令 那就 执行传播命令 */
+        /*一旦遇到第一个写操作，就传播一个MULTI请求*/
+        /* 这样，我们将交付MULTI/..../EXEC块作为一个整体，AOF和复制链路将具有相同的一致性和原子性保证。 */
         /* Propagate a MULTI request once we encounter the first write op.
          * This way we'll deliver the MULTI/..../EXEC block as a whole and
          * both the AOF and the replication link will have the same consistency
          * and atomicity guarantees. */
         if (!must_propagate && !(c->cmd->flags & CMD_READONLY)) {
+            //传播multi给到aof 或者rdb
             execCommandPropagateMulti(c);
             must_propagate = 1;
         }
-
+        //调用事务内部的命令,内部会给monitor
         call(c,CMD_CALL_FULL);
 
+        //ai 回复是 当执行 Lua 脚本时，Redis 会尝试将 EVAL 转换为 EVALSHA 以节省带宽
+        // MULTI 事务中的命令优化
+        // SORT 命令的存储参数扩展
+        // 模块命令的动态修改
         /* Commands may alter argc/argv, restore mstate. */
         c->mstate.commands[j].argc = c->argc;
         c->mstate.commands[j].argv = c->argv;
@@ -194,6 +212,7 @@ void execCommand(client *c) {
     c->argc = orig_argc;
     c->cmd = orig_cmd;
     discardTransaction(c);
+    /*如果已经传播了MULTI，请确保EXEC命令也将被传播*/
     /* Make sure the EXEC command will be propagated as well if MULTI
      * was already propagated. */
     if (must_propagate) server.dirty++;
@@ -210,13 +229,16 @@ handle_monitor:
 
 /* ===================== WATCH (CAS alike for MULTI/EXEC) ===================
  *
+   该实现使用每个数据库的哈希表将键映射到监视这些键的客户端列表(c->db->watched_keys)，因此，给定要修改的键，我们可以将所有相关的客户端标记为脏的
  * The implementation uses a per-DB hash table mapping keys to list of clients
  * WATCHing those keys, so that given a key that is going to be modified
  * we can mark all the associated clients as dirty.
  *
+ * 此外，每个客户端都包含一个已监视键的列表，因此可以在释放客户端或调用UNWATCH时取消监视这些键
  * Also every client contains a list of WATCHed keys so that's possible to
  * un-watch such keys when the client is freed or when UNWATCH is called. */
 
+   // 在client->watched_keys列表中，我们需要使用watchedKey结构，因为为了识别Redis中的键，我们需要键名和DB
 /* In the client->watched_keys list we need to use watchedKey structures
  * as in order to identify a key in Redis we need both the key name and the
  * DB */
@@ -245,6 +267,7 @@ void watchForKey(client *c, robj *key) {
     clients = dictFetchValue(c->db->watched_keys,key);
     if (!clients) {
         clients = listCreate();
+        // 键 - 客户端链表的 字典
         dictAdd(c->db->watched_keys,key,clients);
         incrRefCount(key);
     }
@@ -260,6 +283,9 @@ void watchForKey(client *c, robj *key) {
     listAddNodeTail(c->watched_keys,wk);
 }
 
+/*
+ 取消对该客户端监视的所有key的监视。清除EXEC脏标志取决于调用者
+*/
 /* Unwatch all the keys watched by this client. To clean the EXEC dirty
  * flag is up to the caller. */
 void unwatchAllKeys(client *c) {
@@ -291,6 +317,9 @@ void unwatchAllKeys(client *c) {
     }
 }
 
+/*
+ signalModifiedKey方法调用
+*/
 /* "Touch" a key, so that if this key is being WATCHed by some client the
  * next EXEC will fail. */
 void touchWatchedKey(redisDb *db, robj *key) {
@@ -308,6 +337,7 @@ void touchWatchedKey(redisDb *db, robj *key) {
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
 
+        //客户端被标记为CLIENT_DIRTY_CAS
         c->flags |= CLIENT_DIRTY_CAS;
     }
 }

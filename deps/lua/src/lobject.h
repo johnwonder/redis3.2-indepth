@@ -23,6 +23,11 @@
 
 
 /*
+
+ 标记值和对象表示。先浏览一下这个。你会想要一直打开一个窗口来保存这个文件。
+*/
+
+/*
 ** Extra tags for non-values
 */
 #define LUA_TPROTO	(LAST_TAG+1)
@@ -37,8 +42,15 @@ typedef union GCObject GCObject;
 
 
 /*
+ 所有可收集对象的通用头（以宏形式），将包含在其他对象中
 ** Common Header for all collectable objects (in macro form, to be
 ** included in other objects)
+
+  next:指向下一个GC链表的成员，
+  tt: 表示数据的类型，即前面的那些表示数据类型的宏。
+  marked: GC相关的标记位，
+
+  这些类型包括字符串、表、函数、线程、⽤户数据等。marked变量则表示该GCObject的颜⾊
 */
 #define CommonHeader	GCObject *next; lu_byte tt; lu_byte marked
 
@@ -50,28 +62,79 @@ typedef struct GCheader {
   CommonHeader;
 } GCheader;
 
+/*
+ 5.3.6版本是这样的
+#define CommonHeader	GCObject *next; lu_byte tt; lu_byte marked
+ 
+struct GCObject {
+  CommonHeader;
+};
+
+//5.3 lstate.h中
+union GCUnion {
+  GCObject gc;   
+  struct TString ts;
+  struct Udata u;
+  union Closure cl;
+  struct Table h;
+  struct Proto p;
+  struct lua_State th;  
+};
+//5.1
+union GCObject {
+  GCheader gch;
+  union TString ts;
+  union Udata u;
+  union Closure cl;
+  struct Table h;
+  struct Proto p;
+  struct UpVal uv;
+  struct lua_State th;  
+};
+*/
 
 
 
 /*
 ** Union of all Lua values
+
+   所有lua值的联合体
 */
 typedef union {
-  GCObject *gc;
-  void *p;
-  lua_Number n;
-  int b;
+  //当是可回收的类型时，该对象的指针将存储在gc变量中。
+  //可以被lua GC机制回收的类型，包括字符串类型，表类型，函数类型
+  //函数类型有三种：一种是Light C Function，另一种是C Closure（C闭包);
+  //还有一种是Lua Closure（Lua闭包）。后两种可以被Lua GC机制回收）。
+  //userdata类型 和线程类型。
+  GCObject *gc; /* 可被垃圾回收的对象   */
+  void *p; /* light userdata类型对象 使用者自行释放 */
+  lua_Number n;  /* 浮点型变量 */
+  int b; /* 布尔类型的值 */
+  /*
+     5.3多了
+     //只有一个参数，就是Lua虚拟机的线程类型实例，它所有的参数都在线程的栈总。
+     //只有一个int类型的返回值，这个返回值告诉调用者，在lua_CFunction函数
+     被调用完成之后，有多少个返回值还在栈中，
+     lua_CFunction f;  存放的函数指针。和另两类函数不一样，它没有上值列表，
+     
+     lua_Integer i;   
+  
+  */
 } Value;
 
 
 /*
 ** Tagged Values
+
+   Lua的基本类型包括：nil类型，布尔类型，轻量用户数据类型，
+   字符串类型，表类型，函数类型，完全用户数据类型和线程类型，
+   lua通过一个通用类型来表示所有类型的数据
 */
 
 #define TValuefields	Value value; int tt
 
 typedef struct lua_TValue {
-  TValuefields;
+  TValuefields;//表示类型的tt ,表示值的value
 } TValue;
 
 
@@ -185,24 +248,36 @@ typedef struct lua_TValue {
 
 #define setttype(obj, tt) (ttype(obj) = (tt))
 
+/* 
+  使用一个宏来表示哪些数据类型需要进行GC
+  可以看到 ,LUA_TSTRING 包括LUA_TSTRING 之后的数据类型都需要进行GC操作。
 
+  这些需要进行GC操作的数据类型都会有一个CommonHeader宏定义的成员，
+  并且这个成员在结构体定义的最开始部分。
+ */
 #define iscollectable(o)	(ttype(o) >= LUA_TSTRING)
 
 
 
-typedef TValue *StkId;  /* index to stack elements */
+typedef TValue *StkId;  /* 栈元素的索引 index to stack elements */
 
 
 /*
 ** String headers for string table
+
+   为了让TString数据类型按照L_Umaxalign 类型来对齐
+
+   在C语言中，struct/union这样的复合数据类型是按照这个类型中最大对齐量的数据来对齐的，
+   所以这里就是按照double类型的对齐量来对齐的，一般而言是8字节。之所以要进行对齐操作，
+   是为了在CPU读取数据时性能更高。
 */
 typedef union TString {
   L_Umaxalign dummy;  /* ensures maximum alignment for strings */
   struct {
     CommonHeader;
-    lu_byte reserved;
-    unsigned int hash;
-    size_t len;
+    lu_byte reserved; //这个变量用于标示这个字符串是否是Lua虚拟机中的保留字符串。如果这个值为1，那么将不会在GC阶段被回收，而是一直保留在系统中。只有Lua语言中的关键字才会是保留字符串。
+    unsigned int hash;//该字符串的散列值。Lua的字符串比较并不会像一般的做法那样进行逐位对比，而是仅比较字符串的散列值。
+    size_t len; //字符串长度。
   } tsv;
 } TString;
 
@@ -223,18 +298,39 @@ typedef union Udata {
 } Udata;
 
 
+/*
+  指令执行的部分 解释器分析lua文件之后生成Proto结构体，
+  最后到luaV_execute函数中依次取出指令来执行。
+
+  而内存部分，在lua解释器中就存放在lua栈中。lua中也是把栈的
+  某一个位置称为寄存器， 这里的寄存器并不是cpu中的寄存器
+
+  每一个lua虚拟机对应一个lua_State结构体，它使用TValue数组来模拟栈，
+
+*/
 
 
 /*
+将字节码信息存在⼀个被叫作Proto的内存结构中，这个结构
+主要是存放编译结果（指令、常量等信息）。虚拟机在运⾏的过程中，会从Proto结构中取出⼀
+个个的字节码，然后再执⾏。
+
 ** Function Prototypes
+
+    函数的常量数组
+    编译生成的字节码信息，也就是前面提到的code成员。
+    函数的局部变量信息。
+    保存upvalue名字的数组。
+
+    Instruction *code 指令列表 存放编译好的指令。 最后一个指令通常是RETURN指令，代表程序结束
 */
 typedef struct Proto {
   CommonHeader;
-  TValue *k;  /* constants used by the function */
-  Instruction *code;
+  TValue *k;  /* 脚本中的常量 constants used by the function */
+  Instruction *code; //生成的OpCode存放在Proto结构体的code数组中 指令列表 存放编译好的指令。
   struct Proto **p;  /* functions defined inside the function */
   int *lineinfo;  /* map from opcodes to source lines */
-  struct LocVar *locvars;  /* information about local variables */
+  struct LocVar *locvars;  /* information about local variables 函数的所有局部变量信息。 */
   TString **upvalues;  /* upvalue names */
   TString  *source;
   int sizeupvalues;
@@ -258,9 +354,9 @@ typedef struct Proto {
 #define VARARG_ISVARARG		2
 #define VARARG_NEEDSARG		4
 
-
+//函数的所有局部变量的LocVar信息，一般存放在Proto结构体的locvars中
 typedef struct LocVar {
-  TString *varname;
+  TString *varname; //变量名
   int startpc;  /* first point where variable is active */
   int endpc;    /* first point where variable is dead */
 } LocVar;
@@ -294,6 +390,10 @@ typedef struct UpVal {
 
 typedef struct CClosure {
   ClosureHeader;
+   //只有一个参数，就是Lua虚拟机的线程类型实例，它所有的参数都在线程的栈总。
+   //只有一个int类型的返回值，这个返回值告诉调用者，在lua_CFunction函数
+  //被调用完成之后，有多少个返回值还在栈中，
+  //和另两类函数不一样，它没有上值列表，
   lua_CFunction f;
   TValue upvalue[1];
 } CClosure;
@@ -318,6 +418,11 @@ typedef union Closure {
 
 /*
 ** Tables
+
+   Lua表中将数据存放在两种类型的数据结构中，一个是数组，一个是散列表。
+
+   如果输入的key是一个正整数，并且它的值>0 
+
 */
 
 typedef union TKey {
@@ -335,16 +440,65 @@ typedef struct Node {
 } Node;
 
 
+/*
+  使用表来统一表示lua中的一切数据，是lua区分于其他语言的一个特色。
+  这个特色从最开始的lua版本保持至今，很大的原因是为了在设计上保持简洁。
+  lua表分为数组和散列表部分，其中数组部分不像其他语言那样，从0开始作为第一个索引，而是
+  从1开始。散列表部分可以存储任何其他不能存放在数组部分的数据，唯一的要求就是键值不能为nil。
+  尽管内部实现上区分了这两个部分，但是对使用者而言却是透明的。使用lua表，可以模拟出其他各种
+  数据结构--数组，链表，树等。
+
+*/
+
 typedef struct Table {
   CommonHeader;
-  lu_byte flags;  /* 1<<p means tagmethod(p) is not present */ 
+  /*
+     这个byte类型的数据，用于标示这个表中提供了哪些元方法。
+     最开始这个flags为空，也就是0，当查找一次后，如果该表中
+     存在某个元方法，那么将该元方法对应的flag bit设为1，这样下一次
+     查找时只需要比较这个bit就行了。每个方法对应的bit定义在ltm.h文件中。
+   */
+  lu_byte flags;  /* 1<<p means tagmethod(p) is not present 表示 标记方法(p) 不存在*/ 
+  /*
+    该表中以2为底的散列表大小的对数值。同时由此可知，散列表部分
+    的大小一定是2的幂，即如果散列通数组要扩展的话，也是以每次在原大小
+    基础上乘以2的形式扩展。
+
+  */
+ 
+     /*
+    由于在散列桶部分，每个散列值相同的数据都会以链表的形式串起来，
+    所以即使数量用完了，也不要紧因此这里使用byte类型，而且是原数据以2为底的对数值，
+    因为要根据这个值还原回原来的真实数据，也只是需要移位操作罢了，速度很快。
+  */
   lu_byte lsizenode;  /* log2 of size of `node' array */
+  /*
+     存放该表的元表
+  */
   struct Table *metatable;
+  /*
+     指向数组部分的指针
+  */
   TValue *array;  /* array part */
+
+  /*
+     指向该表的散列桶数组起始位置的指针。
+  */
   Node *node;
+  /*
+     指向该表散列通数组的最后空闲位置的指针
+  */
   Node *lastfree;  /* any free position is before this position */
+  /*
+     gc相关的链表
+  */
   GCObject *gclist;
+  /*
+    数组部分的大小。
+  */
   int sizearray;  /* size of `array' array */
+
+ 
 } Table;
 
 

@@ -407,6 +407,10 @@ void addReply(client *c, robj *obj) {
     //函数返回false的情况直接返回
     if (prepareClientToWrite(c) != C_OK) return;
 
+    /*
+     这是一个重要的地方，当有一个保存子进程在运行时，我们可以避免写时复制，避免在不需要时触及对象的refcount字段
+     如果编码是RAW，并且静态缓冲区中有空间，我们将能够将对象发送到客户端，而不会干扰其页面
+    */
     /* This is an important place where we can avoid copy-on-write
      * when there is a saving child running, avoiding touching the
      * refcount field of the object if it's not needed.
@@ -416,6 +420,7 @@ void addReply(client *c, robj *obj) {
      * messing with its page. */
     if (sdsEncodedObject(obj)) {
         //先尝试添加到缓冲区 //内部使用memcpy
+        //如果缓冲区 添加不成功 才会把对象添加到c->reply中
         if (_addReplyToBuffer(c,obj->ptr,sdslen(obj->ptr)) != C_OK)
             _addReplyObjectToList(c,obj);
     } else if (obj->encoding == OBJ_ENCODING_INT) {
@@ -435,6 +440,7 @@ void addReply(client *c, robj *obj) {
         //返回的是解码过后的对象
         obj = getDecodedObject(obj);
         //添加到客户端的buf缓冲区中 
+        //如果缓冲区 添加不成功 才会把对象添加到c->reply中
         if (_addReplyToBuffer(c,obj->ptr,sdslen(obj->ptr)) != C_OK)
             _addReplyObjectToList(c,obj);
 
@@ -820,6 +826,10 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         //cfd 是客户端的文件描述符
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
 
+        /*
+          在listenToPort 函数中设置了非阻塞
+        */
+
         //默认情况下，如果套接字是阻塞模式，accept会一直阻塞直到有新的连接到达。
         //而如果套接字被设置为非阻塞模式，accept在没有连接时会立即返回错误，比如EAGAIN或EWOULDBLOCK。
         //所以这边没有连接的时候会立即返回 并且错误码是EWOULDBLOCK
@@ -922,13 +932,17 @@ void unlinkClient(client *c) {
 void freeClient(client *c) {
     listNode *ln;
 
+    /*如果客户端是master */
     /* If it is our master that's beging disconnected we should make sure
      * to cache the state to try a partial resynchronization later.
      *
      * Note that before doing this we make sure that the client is not in
      * some unexpected state, by checking its flags. */
     if (server.master && c->flags & CLIENT_MASTER) {
+        
         serverLog(LL_WARNING,"Connection with master lost.");
+
+
         if (!(c->flags & (CLIENT_CLOSE_AFTER_REPLY|
                           CLIENT_CLOSE_ASAP|
                           CLIENT_BLOCKED|
@@ -1253,6 +1267,7 @@ void resetClient(client *c) {
     //获取当前命令的处理函数
     redisCommandProc *prevcmd = c->cmd ? c->cmd->proc : NULL;
 
+    /* 这边就遍历 释放 客户端参数对象了*/
     freeClientArgv(c);
     c->reqtype = 0;//清空请求类型
     c->multibulklen = 0; //多块长度清零
@@ -1663,7 +1678,7 @@ void processInputBuffer(client *c) {
             /*开始处理命令*/
             /* Only reset the client when the command was executed. */
             if (processCommand(c) == C_OK)
-                resetClient(c);
+                resetClient(c); //内部会释放客户端对象列表
 
             /*
               freeMemoryIfNeeded 方法 有可能刷新slave 输出缓冲区，
@@ -2361,6 +2376,8 @@ int clientsArePaused(void) {
     //如果当前客户端被阻塞 且 阻塞截止时间 早于当前时间 
     //那么就复位
     //且把不是slave 且不是本身阻塞的 客户端加入到unblocked_clients 列表中
+
+    //server.mstime 会在updateCachedTime 的时候更新
     if (server.clients_paused &&
         server.clients_pause_end_time < server.mstime)
     {

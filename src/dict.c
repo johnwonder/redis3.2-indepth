@@ -507,6 +507,7 @@ static int dictGenericDelete(dict *d, const void *key, int nofree)
                 else
                     d->ht[table].table[idx] = he->next;
                 if (!nofree) {
+                    //释放键和值
                     dictFreeKey(d, he);
                     dictFreeVal(d, he);
                 }

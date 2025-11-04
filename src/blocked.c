@@ -150,6 +150,8 @@ void unblockClient(client *c) {
     /* The client may already be into the unblocked list because of a previous
      * blocking operation, don't add back it into the list multiple times. */
     if (!(c->flags & CLIENT_UNBLOCKED)) {
+
+        //变成UNBLOCKED
         c->flags |= CLIENT_UNBLOCKED;
         listAddNodeTail(server.unblocked_clients,c);
     }

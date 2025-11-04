@@ -25,7 +25,22 @@
 #include "lstring.h"
 #include "ltable.h"
 
+ /*
+  《Lua解释器构建》
+   它的构造也很简单，主要包含了词法分析器和语法
+   分析器。其语法分析器也不⽣成抽象语法树，⽽是直接⽣成字节码。
+  《Lua设计与实现》
+   Lua使用一遍扫描(one pass parse)代码文件的方式生成字节码，即在第一遍扫描代码
+   的时候同时就生成字节码了
+*/
 
+//语法分析
+
+/*
+ 递归下降解析器，目标是基于寄存器的VM。
+ 从chunk（）开始，逐步完成。最后阅读表达式解析器和代码生成器部分。
+
+*/
 
 #define hasmultret(k)		((k) == VCALL || (k) == VVARARG)
 
@@ -49,6 +64,7 @@ typedef struct BlockCnt {
 
 /*
 ** prototypes for recursive non-terminal functions
+  递归非终结函数的原型
 */
 static void chunk (LexState *ls);
 static void expr (LexState *ls, expdesc *v);
@@ -147,6 +163,7 @@ static int registerlocalvar (LexState *ls, TString *varname) {
   luaM_growvector(ls->L, f->locvars, fs->nlocvars, f->sizelocvars,
                   LocVar, SHRT_MAX, "too many local variables");
   while (oldsize < f->sizelocvars) f->locvars[oldsize++].varname = NULL;
+  //
   f->locvars[fs->nlocvars].varname = varname;
   luaC_objbarrier(ls->L, f, varname);
   return fs->nlocvars++;
@@ -163,7 +180,7 @@ static void new_localvar (LexState *ls, TString *name, int n) {
   fs->actvar[fs->nactvar+n] = cast(unsigned short, registerlocalvar(ls, name));
 }
 
-
+//解析局部变量
 static void adjustlocalvars (LexState *ls, int nvars) {
   FuncState *fs = ls->fs;
   fs->nactvar = cast_byte(fs->nactvar + nvars);
@@ -220,7 +237,14 @@ static void markupval (FuncState *fs, int level) {
   if (bl) bl->upval = 1;
 }
 
+/*
+  1.如果变量在当前函数的LocVar结构体数组中找到，那么这个变量就是局部变量，类型为VLOCAL.
+  2. 如果在当前函数中找不到，就逐层往上面的block来查找，如果在某一层找到了，
+    那么这个变量就是UpValue,类型为VUPVAL.
+  3. 如果最后那层都没有查到，那么这个变量就是全局变量，类型为VGLOBAL.
 
+
+*/
 static int singlevaraux (FuncState *fs, TString *n, expdesc *var, int base) {
   if (fs == NULL) {  /* no more levels? */
     init_exp(var, VGLOBAL, NO_REG);  /* default is global variable */
@@ -332,7 +356,9 @@ static void open_func (LexState *ls, FuncState *fs) {
   fs->prev = ls->fs;  /* linked list of funcstates */
   fs->ls = ls;
   fs->L = L;
+
   ls->fs = fs;
+
   fs->pc = 0;
   fs->lasttarget = -1;
   fs->jpc = NO_JUMP;
@@ -373,6 +399,9 @@ static void close_func (LexState *ls) {
   f->sizeupvalues = f->nups;
   lua_assert(luaG_checkcode(f));
   lua_assert(fs->bl == NULL);
+  
+  //这里退回了 
+  //ls->fs 本来指向这个新的function 但是这里退回了
   ls->fs = fs->prev;
   /* last token read was anchored in defunct function; must reanchor it */
   if (fs) anchor_token(ls);
@@ -430,13 +459,16 @@ static void yindex (LexState *ls, expdesc *v) {
 ** =======================================================================
 */
 
-
+//解析表的信息时，会存放在这个结构中
 struct ConsControl {
-  expdesc v;  /* last list item read */
-  expdesc *t;  /* table descriptor */
-  int nh;  /* total number of `record' elements */
-  int na;  /* total number of array elements */
+  expdesc v;  /* last list item read  存放表构造过程中最后一个表达式的信息 */
+  expdesc *t;  /* table descriptor 构造表相关的表达式信息，与上一个字段区别是这里用的指针， 这个字段是由外部传入的 */
+  int nh;  /* total number of `record' elements 初始化表时，散列部分数据的数量 */
+  int na;  /* total number of array elements  初始化表时，数组部分数据的数量 */
   int tostore;  /* number of array elements pending to be stored */
+  //lua解析器中定义了一个叫LFIELDS_PER_FLUSH的常量，当前的值是50，
+  //意义在于 当前构造表时内部的数组部分的数据如果超过这个值，就首先调用一次OP_SETLIST函数
+  //写入寄存器中。
 };
 
 
@@ -488,29 +520,66 @@ static void lastlistfield (FuncState *fs, struct ConsControl *cc) {
 
 
 static void listfield (LexState *ls, struct ConsControl *cc) {
+  //调用expr函数解析这个表达式，得到对应的ConsControl结构体中成员v的数据。
+  //这个对象会暂存表构造过程中当前表达式的结果。
   expr(ls, &cc->v);
+  //检测当前表中数组部分的数据梳理是否超过限制
   luaY_checklimit(ls->fs, cc->na, MAX_INT, "items in a constructor");
+  //一次将ConsControl结构体的成员na和tostore加1.
   cc->na++;
   cc->tostore++;
 }
 
-
+//loadk指令和一条setlist指令。
+//loadk指令 用于把表构造表达式中的常量1和2加载到函数栈中，
+//setlist指令 使用这两个常量初始化表的数组部分。
 static void constructor (LexState *ls, expdesc *t) {
   /* constructor -> ?? */
   FuncState *fs = ls->fs;
   int line = ls->linenumber;
+
+  //生成一条OP_NEWTABLE指令，这条指令创建的表最终会根据指令中的参数A存储的寄存器地址
+  //赋值给本函数栈内的寄存器，
+
+  //OP_NEWTABLE指令中创建好的表所在的寄存器，
   int pc = luaK_codeABC(fs, OP_NEWTABLE, 0, 0, 0);
   struct ConsControl cc;
   cc.na = cc.nh = cc.tostore = 0;
   cc.t = t;
   init_exp(t, VRELOCABLE, pc);
+
+  //将ConsControl结构体中的对象v初始化为VVOID.
+  //前面提到过这个数据存储的是表构造过程中最后一个表达式的信息，
+  //因为这里还没有解析到表构造中的信息，所以这个表达式的类型为VVOID.
   init_exp(&cc.v, VVOID, 0);  /* no value (yet) */
+
+  //解析表达式到寄存器的函数
+  //将寄存器地址修正为前面创建的OP_NEWTABLE指令的参数A.
   luaK_exp2nextreg(ls->fs, t);  /* fix it at stack top (for gc) */
   checknext(ls, '{');
   do {
     lua_assert(cc.v.k == VVOID || cc.tostore > 0);
+
+    //当没有解析到符号} 时， 解析表达式的循环会一直执行。
     if (ls->t.token == '}') break;
+
+    //生成上一个表达式的相关指令。 
+    //这肯定会调用luaK_exp2nextreg函数。
+    //最开始初始化ConsControl表达式时，其成员变量v的表达式类型是VVOID，
+    //因此这种情况下进入这个函数并不会有什么效果
+
+    //每解析完一个表达式，会调用 针对数组部分
     closelistfield(fs, &cc);
+
+    //针对具体的类型来做解析：
+    /*
+       1.如果解析到一个变量，看紧跟着这个符号的是不是=,
+       如果不是，就是一个数组方式的赋值，否则就是散列方式的赋值。
+
+       2.如果看到的是[符号，就认为这是一个散列部分的构造。
+       3. 否则就是看数组部分的构造了。如果是数组部分的构造，那么进入的是listfield函数
+       ，否则就是recfield函数了。
+    */
     switch(ls->t.token) {
       case TK_NAME: {  /* may be listfields or recfields */
         luaX_lookahead(ls);
@@ -525,6 +594,9 @@ static void constructor (LexState *ls, expdesc *t) {
         break;
       }
       default: {  /* constructor_part -> listfield */
+
+        //数组部分的构造
+        //调用expr函数解析这个表达式，得到对应的ConsControl结构体中成员v的数据。
         listfield(ls, &cc);
         break;
       }
@@ -532,6 +604,9 @@ static void constructor (LexState *ls, expdesc *t) {
   } while (testnext(ls, ',') || testnext(ls, ';'));
   check_match(ls, '}', '{', line);
   lastlistfield(fs, &cc);
+
+  //将ConsControl结构体中存放的散列和数组部分的大小，写入前面生成的
+  //OP_NEWTABLE指令的B和C部分
   SETARG_B(fs->f->code[pc], luaO_int2fb(cc.na)); /* set initial array size */
   SETARG_C(fs->f->code[pc], luaO_int2fb(cc.nh));  /* set initial table size */
 }
@@ -596,8 +671,16 @@ static void body (LexState *ls, expdesc *e, int needself, int line) {
 static int explist1 (LexState *ls, expdesc *v) {
   /* explist1 -> expr { `,' expr } */
   int n = 1;  /* at least one expression */
+
+  //调用函数expr解析表达式
   expr(ls, v);
+  //当解析的表达式列表中还存在其他表达式时，即有逗号 分隔的式子时，
+  //针对每个表达式继续调用expr函数解析表达式，将结果缓存在expdesc结构体中，
+  //然后调用函数luaK_exp2nextreg将表达式存入当前函数的下一个可用寄存器中。
   while (testnext(ls, ',')) {
+
+    //根据结构体的信息 生成对应的字节码
+    //需要根据expresc结构体生成字节码时，都要经过它。
     luaK_exp2nextreg(ls->fs, v);
     expr(ls, v);
     n++;
@@ -676,6 +759,7 @@ static void prefixexp (LexState *ls, expdesc *v) {
       return;
     }
     case TK_NAME: {
+      /*最后会调用递归函数singlevaraux来进行变量的查找*/
       singlevar(ls, v);
       return;
     }
@@ -729,7 +813,11 @@ static void simpleexp (LexState *ls, expdesc *v) {
                   constructor | FUNCTION body | primaryexp */
   switch (ls->t.token) {
     case TK_NUMBER: {
-      init_exp(v, VKNUM, 0);
+      init_exp(v, VKNUM, 0); //使用类型VKNUM初始化expdesc结构体，这个类型标识数字常量
+
+      //将具体的数据 赋值给expdesc结构体中的nval。
+      //expdesc结构体中union u的数据根据不同的类型会存储不同的信息，
+      //在VKNUM这个类型下就是用来存储数字的。
       v->u.nval = ls->t.seminfo.r;
       break;
     }
@@ -758,6 +846,9 @@ static void simpleexp (LexState *ls, expdesc *v) {
       break;
     }
     case '{': {  /* constructor */
+
+
+      /*专门负责构造表*/
       constructor(ls, v);
       return;
     }
@@ -767,6 +858,10 @@ static void simpleexp (LexState *ls, expdesc *v) {
       return;
     }
     default: {
+      /*
+        local a = 1
+        local b = a
+      */
       primaryexp(ls, v);
       return;
     }
@@ -1143,7 +1238,10 @@ static void ifstat (LexState *ls, int line) {
   FuncState *fs = ls->fs;
   int flist;
   int escapelist = NO_JUMP;
+
   flist = test_then_block(ls);  /* IF cond THEN block */
+
+  //{elseif exp then block} 被{}包起来的，表示它可以重复0次或者多次
   while (ls->t.token == TK_ELSEIF) {
     luaK_concat(fs, &escapelist, luaK_jump(fs));
     luaK_patchtohere(fs, flist);
@@ -1168,6 +1266,7 @@ static void localfunc (LexState *ls) {
   new_localvar(ls, str_checkname(ls), 0);
   init_exp(&v, VLOCAL, fs->freereg);
   luaK_reserveregs(fs, 1);
+  //解析局部变量
   adjustlocalvars(ls, 1);
   body(ls, &b, 0, ls->linenumber);
   luaK_storevar(fs, &v, &b);
@@ -1175,22 +1274,40 @@ static void localfunc (LexState *ls) {
   getlocvar(fs, fs->nactvar - 1).startpc = fs->pc;
 }
 
+/*
+  识别局部变量
 
+  读取=号左边的所有变量，
+  
+  在Proto结构体中创建相应的局部变量信息
+  
+  而变量在lua函数栈中的存储位置存放在freereg变量中，
+  
+  它会根据当前函数栈中变量的数量进行调整
+*/
 static void localstat (LexState *ls) {
   /* stat -> LOCAL NAME {`,' NAME} [`=' explist1] */
   int nvars = 0;
   int nexps;
   expdesc e;
   do {
+    //将=左边的所有以,（逗号)分隔的变量都生成一个相应的局部变量
+    //存储每个局部变量的信息时，使用的是LocVar结构体
     new_localvar(ls, str_checkname(ls), nvars++);
   } while (testnext(ls, ','));
+
   if (testnext(ls, '='))
     nexps = explist1(ls, &e);
   else {
     e.k = VVOID;
     nexps = 0;
   }
+  //用于根据等号两边变量和表达式的数量来调整赋值。
+  // 当变量数量多于等号右边的表达式数量时，会将多余的变量置为nil.
   adjust_assign(ls, nvars, nexps, &e);
+  //解析局部变量
+  //会根据变量的数量调整FuncState结构体中记录局部变量数量的nactvar对象，
+  //并记录这些局部变量的startpc值。
   adjustlocalvars(ls, nvars);
 }
 
@@ -1321,7 +1438,7 @@ static int statement (LexState *ls) {
   }
 }
 
-
+// 根据当前函数栈存放的变量数量（包括函数的局部变量，函数的参数等）进行调整
 static void chunk (LexState *ls) {
   /* chunk -> { stat [`;'] } */
   int islast = 0;

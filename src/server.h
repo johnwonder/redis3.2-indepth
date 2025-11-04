@@ -74,12 +74,12 @@ typedef long long mstime_t; /* millisecond time type. */
 #define C_OK                    0
 #define C_ERR                   -1
 
-/* Static server configuration */
-#define CONFIG_DEFAULT_HZ        10      /* Time interrupt calls/sec. */
-#define CONFIG_MIN_HZ            1
-#define CONFIG_MAX_HZ            500
-#define CONFIG_DEFAULT_SERVER_PORT        6379    /* TCP port */
-#define CONFIG_DEFAULT_TCP_BACKLOG       511     /* TCP listen backlog */
+/* Static server configuration 静态服务器配置 */
+#define CONFIG_DEFAULT_HZ        10      /* 1秒中段10次 中断次数/秒 Time interrupt calls/sec. */
+#define CONFIG_MIN_HZ            1 /* 最少频率  1秒1次*/
+#define CONFIG_MAX_HZ            500 /* 最多频率 1秒500次*/
+#define CONFIG_DEFAULT_SERVER_PORT        6379    /*默认TCP端口 TCP port */
+#define CONFIG_DEFAULT_TCP_BACKLOG       511     /*TCP 监听积压 TCP listen backlog */
 #define CONFIG_DEFAULT_CLIENT_TIMEOUT       0       /* default client timeout: infinite 默认客户端超时时间 无限长 */
 #define CONFIG_DEFAULT_DBNUM     16
 #define CONFIG_MAX_LINE    1024
@@ -253,7 +253,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CLIENT_MONITOR (1<<2) /* 这个客户端是一个slave监测， This client is a slave monitor, see MONITOR */
 #define CLIENT_MULTI (1<<3)   /* This client is in a MULTI context */
 #define CLIENT_BLOCKED (1<<4) /*客户端在等待阻塞操作 The client is waiting in a blocking operation */
-#define CLIENT_DIRTY_CAS (1<<5) /* 监视键修改 Watched keys modified. EXEC will fail. */
+#define CLIENT_DIRTY_CAS (1<<5) /* 监视键被修改了 所以exec将会失败  Watched keys modified. EXEC will fail. */
 #define CLIENT_CLOSE_AFTER_REPLY (1<<6) /* 写完整个回复后关闭 Close after writing entire reply. */
 #define CLIENT_UNBLOCKED (1<<7) /* 该客户端已解除阻塞，并存储在server.unblocked_clients中 This client was unblocked and is stored in
                                   server.unblocked_clients */
@@ -273,7 +273,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CLIENT_PREVENT_PROP (CLIENT_PREVENT_AOF_PROP|CLIENT_PREVENT_REPL_PROP)
 #define CLIENT_PENDING_WRITE (1<<21) /* 客户端有输出要发送，但还没有安装写处理程序 Client has output to send but a write
                                         handler is yet njot installed. */
-#define CLIENT_REPLY_OFF (1<<22)   /* Don't send replies to client. */
+#define CLIENT_REPLY_OFF (1<<22)   /* 不要回复给客户端 Don't send replies to client. */
 #define CLIENT_REPLY_SKIP_NEXT (1<<23)  /* 为下个命令设置CLIENT_REPLY_SKIP Set CLIENT_REPLY_SKIP for next cmd */
 #define CLIENT_REPLY_SKIP (1<<24)  /* 仅仅不发这个回复 Don't send just this reply. */
 #define CLIENT_LUA_DEBUG (1<<25)  /* Run EVAL in debug mode. */
@@ -281,7 +281,7 @@ typedef long long mstime_t; /* millisecond time type. */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
-#define BLOCKED_NONE 0    /* Not blocked, no CLIENT_BLOCKED flag set. */
+#define BLOCKED_NONE 0    /* 么有阻塞， Not blocked, no CLIENT_BLOCKED flag set. */
 #define BLOCKED_LIST 1    /* BLPOP & co. */
 #define BLOCKED_WAIT 2    /* 等待同步复制 WAIT for synchronous replication. */
 
@@ -347,7 +347,7 @@ typedef long long mstime_t; /* millisecond time type. */
 /*排序操作 Sort operations */
 #define SORT_OP_GET 0
 
-/* Log levels */
+/* 日志级别 Log levels */
 #define LL_DEBUG 0
 #define LL_VERBOSE 1
 #define LL_NOTICE 2
@@ -405,11 +405,11 @@ typedef long long mstime_t; /* millisecond time type. */
 #define MAXMEMORY_NO_EVICTION 5 /*当内存不足以容纳新写入数据时，新写入操作会报错*/
 #define CONFIG_DEFAULT_MAXMEMORY_POLICY MAXMEMORY_NO_EVICTION
 
-/* Scripting */
+/* 脚本 Scripting */
 #define LUA_SCRIPT_TIME_LIMIT 5000 /* milliseconds */
 
-/* Units */
-#define UNIT_SECONDS 0
+/* 单位 Units */
+#define UNIT_SECONDS 0  ///秒
 #define UNIT_MILLISECONDS 1
 
 /* SHUTDOWN flags */
@@ -418,7 +418,7 @@ typedef long long mstime_t; /* millisecond time type. */
                                    points are configured. */
 #define SHUTDOWN_NOSAVE 2       /* Don't SAVE on SHUTDOWN. */
 
-/* Command call flags, see call() function */
+/*命令调用标记， Command call flags, see call() function */
 #define CMD_CALL_NONE 0
 #define CMD_CALL_SLOWLOG (1<<0)
 #define CMD_CALL_STATS (1<<1)
@@ -437,6 +437,9 @@ typedef long long mstime_t; /* millisecond time type. */
 #define RDB_CHILD_TYPE_DISK 1     /* RDB已经写入disk RDB is written to disk. */
 #define RDB_CHILD_TYPE_SOCKET 2   /* RDB已经写入slave socket RDB is written to slave socket. */
 
+/*
+ Keyspace更改通知类。为了配置目的，每个类都与一个字符相关联
+*/
 /* Keyspace changes notification classes. Every class is associated with a
  * character for configuration purposes. */
 #define NOTIFY_KEYSPACE (1<<0)    /* K */
@@ -445,15 +448,20 @@ typedef long long mstime_t; /* millisecond time type. */
 #define NOTIFY_STRING (1<<3)      /* $ */
 #define NOTIFY_LIST (1<<4)        /* l */
 #define NOTIFY_SET (1<<5)         /* s */
-#define NOTIFY_HASH (1<<6)        /* h */
-#define NOTIFY_ZSET (1<<7)        /* z */
+#define NOTIFY_HASH (1<<6)        /* h hash表*/
+#define NOTIFY_ZSET (1<<7)        /* z 有序列表*/
 #define NOTIFY_EXPIRED (1<<8)     /* x */
 #define NOTIFY_EVICTED (1<<9)     /* e */
+
+//所有 都通知
 #define NOTIFY_ALL (NOTIFY_GENERIC | NOTIFY_STRING | NOTIFY_LIST | NOTIFY_SET | NOTIFY_HASH | NOTIFY_ZSET | NOTIFY_EXPIRED | NOTIFY_EVICTED)      /* A */
 
 /* Get the first bind addr or NULL */
 #define NET_FIRST_BIND_ADDR (server.bindaddr_count ? server.bindaddr[0] : NULL)
 
+
+// 运行间隔
+// 实际 依赖server.hz
 /* Using the following macro you can run code inside serverCron() with the
  * specified period, specified in milliseconds.
  * The actual resolution depends on server.hz. */
@@ -505,6 +513,15 @@ typedef struct redisObject {
     unsigned type:4;
     //// 4 bits 表示编码，例如 String 根据前面的例子可以有 raw / embstr / int 等编码方式
     unsigned encoding:4;
+
+    /*
+     Redis 为每个对象仅分配 ‌24位‌ 空间来存储 LRU 时间戳，这是一种典型的内存优化策略
+     如果使用完整的 64 位时间戳（如 Unix 时间戳），每个对象将多消耗 5 字节内存。
+     在存储数百万对象的系统中，这种空间节省能显著减少整体内存占用
+     24位时钟最大值为 16,777,215（约 194 天），在精度和存储成本间取得了平衡
+
+    
+    */
     //// (LRU_BITS 24) 24 bits  LRU / LFU 相关
     unsigned lru:LRU_BITS; /*lru时间 跟server.lruclock相关 lru time (relative to server.lruclock) */
     // 对象是可以共享的，这是个引用计数器，32 bits
@@ -518,6 +535,9 @@ typedef struct redisObject {
 如果当前分辨率低于我们刷新LRU时钟的频率
 我们返回预先计算的值，否则我们需要求助于系统调用
 LRU_CLOCK_RESOLUTION = 1000
+
+也就是 1秒大于1次(server.hz大于1)  就使用server.lruclock
+否则调用getLRUClock()
 */
 /* Macro used to obtain the current LRU clock.
  * If the current resolution is lower than the frequency we refresh the
@@ -570,9 +590,10 @@ typedef struct redisDb {
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
     struct evictionPoolEntry *eviction_pool;    /* 过期池 Eviction pool of keys */
     int id;                     /* 数据库ID Database ID */
-    long long avg_ttl;          /* 数据库键的平均TTL，统计信息 Average TTL, just for stats */
+    long long avg_ttl;          /* 数据库键的平均TTL，统计信息 Average TTL, just for stats 统计数据*/
 } redisDb;
 
+/* 客户端 事务 状态*/
 /* Client MULTI/EXEC state */
 typedef struct multiCmd {
     robj **argv;
@@ -661,7 +682,7 @@ typedef struct client {
     time_t lastinteraction; /* readQueryFromClient的时候会更新 从客户端读取后 最后活跃时间 Time of the last interaction, used for timeout */
     time_t obuf_soft_limit_reached_time;
     int flags;              /* 客户端标记 Client flags: CLIENT_* macros. */
-    int authenticated;      /* 当需要密码的时候 When requirepass is non-NULL. */
+    int authenticated;      /* 当需要密码的时候不为空 When requirepass is non-NULL. */
     int replstate;          /* 如果客户端是slave的时候 复制状态 Replication state if this is a slave. */
     int repl_put_online_on_ack; /* Install slave write handler on ACK. ACK （Acknowledge character）
                                     即是确认字符，在数据通信中，接收站发给发送站的一种传输类控制字符。表示发来的数据已确认接收无误
@@ -686,12 +707,12 @@ typedef struct client {
     long long woff;         /* 最后写的 全局复制offset Last write global replication offset. */
     list *watched_keys;     /* 为了multi/exec cas被监测的keys Keys WATCHED for MULTI/EXEC CAS */
     dict *pubsub_channels;  /* 客户端感兴趣的频道 channels a client is interested in (SUBSCRIBE) */
-    list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
+    list *pubsub_patterns;  /* 客户端感兴趣的匹配模式 patterns a client is interested in (SUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */
 
     /* 反应缓冲区 Response buffer */
     int bufpos;
-    char buf[PROTO_REPLY_CHUNK_BYTES];
+    char buf[PROTO_REPLY_CHUNK_BYTES]; //16kb
 } client;
 
 struct saveparam {
@@ -699,6 +720,7 @@ struct saveparam {
     int changes;
 };
 
+/*共享对象结构*/
 struct sharedObjectsStruct {
     robj *crlf, *ok, *err, *emptybulk, *czero, *cone, *cnegone, *pong, *space,
     *colon, *nullbulk, *nullmultibulk, *queued,
@@ -708,8 +730,8 @@ struct sharedObjectsStruct {
     *busykeyerr, *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *rpop, *lpop,
     *lpush, *emptyscan, *minstring, *maxstring,
-    *select[PROTO_SHARED_SELECT_CMDS],
-    *integers[OBJ_SHARED_INTEGERS],
+    *select[PROTO_SHARED_SELECT_CMDS], //10
+    *integers[OBJ_SHARED_INTEGERS],  //10000个
     *mbulkhdr[OBJ_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
     *bulkhdr[OBJ_SHARED_BULKHDR_LEN];  /* "$<value>\r\n" */
 };
@@ -896,23 +918,23 @@ struct redisServer {
     /* Configuration */
     int verbosity;                  /* redis.conf配置文件中的日志级别 Loglevel in redis.conf */
     int maxidletime;                /* Client timeout in seconds */
-    int tcpkeepalive;               /* Set SO_KEEPALIVE if non-zero. */
-    int active_expire_enabled;      /* Can be disabled for testing purposes. */
+    int tcpkeepalive;               /* 不是0就是设置SO_KEEPALIVE Set SO_KEEPALIVE if non-zero. */
+    int active_expire_enabled;      /* 测试的时候可以禁用 Can be disabled for testing purposes. */
     size_t client_max_querybuf_len; /* 客户端查询缓冲区长度限制 Limit for client query buffer length */
     int dbnum;                      /* Total number of configured DBs */
     int supervised;                 /* 1 if supervised, 0 otherwise. */
     int supervised_mode;            /* See SUPERVISED_* */
     int daemonize;                  /* True if running as a daemon */
     clientBufferLimitsConfig client_obuf_limits[CLIENT_TYPE_OBUF_COUNT];
-    /* AOF persistence */
+    /*AOF持久化 AOF persistence */
     int aof_state;                  /* AOF_(ON|OFF|WAIT_REWRITE) */
-    int aof_fsync;                  /* Kind of fsync() policy */
-    char *aof_filename;             /* Name of the AOF file */
+    int aof_fsync;                  /*  Kind of fsync() policy */
+    char *aof_filename;             /* AOF文件名称 Name of the AOF file */
     int aof_no_fsync_on_rewrite;    /* Don't fsync if a rewrite is in prog. */
     int aof_rewrite_perc;           /* Rewrite AOF if % growth is > M and... */
     off_t aof_rewrite_min_size;     /* the AOF file is at least N bytes. */
     off_t aof_rewrite_base_size;    /* AOF size on latest startup or rewrite. */
-    off_t aof_current_size;         /* AOF current size. */
+    off_t aof_current_size;         /* AOF当前大小 AOF current size. */
     int aof_rewrite_scheduled;      /* Rewrite once BGSAVE terminates. */
     pid_t aof_child_pid;            /* 重写进程的PID PID if rewriting process */
     list *aof_rewrite_buf_blocks;   /*持有aof重写过程中的变化 Hold changes during an AOF rewrite. */
@@ -922,7 +944,7 @@ struct redisServer {
     time_t aof_flush_postponed_start; /* UNIX time of postponed AOF flush */
     time_t aof_last_fsync;            /* UNIX time of last fsync() */
     time_t aof_rewrite_time_last;   /* Time used by last AOF rewrite run. */
-    time_t aof_rewrite_time_start;  /* Current AOF rewrite start time. */
+    time_t aof_rewrite_time_start;  /* 当前AOF的重写开始时间 Current AOF rewrite start time. */
     int aof_lastbgrewrite_status;   /* C_OK or C_ERR */
     unsigned long aof_delayed_fsync;  /* delayed AOF fsync() counter */
     int aof_rewrite_incremental_fsync;/* fsync incrementally while rewriting? */
@@ -946,13 +968,13 @@ struct redisServer {
     struct saveparam *saveparams;   /* Save points array for RDB */
     int saveparamslen;              /* Number of saving points */
     char *rdb_filename;             /* Name of RDB file */
-    int rdb_compression;            /* Use compression in RDB? */
+    int rdb_compression;            /* 在RDB中使用压缩？ Use compression in RDB? */
     int rdb_checksum;               /* Use RDB checksum? */
     time_t lastsave;                /* Unix time of last successful save */
     time_t lastbgsave_try;          /* Unix time of last attempted bgsave */
-    time_t rdb_save_time_last;      /* Time used by last RDB save run. */
+    time_t rdb_save_time_last;      /*  Time used by last RDB save run. */
     time_t rdb_save_time_start;     /* Current RDB save start time. */
-    int rdb_bgsave_scheduled;       /* BGSAVE when possible if true. */
+    int rdb_bgsave_scheduled;       /* 可能的话使用BGSAVE BGSAVE when possible if true. */
     int rdb_child_type;             /* Type of save by active child. */
     int lastbgsave_status;          /* C_OK or C_ERR */
     int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */
@@ -1018,7 +1040,7 @@ struct redisServer {
     int get_ack_from_slaves;            /* If true we send REPLCONF GETACK. */
     /* Limits */
     unsigned int maxclients;            /* Max number of simultaneous clients */
-    unsigned long long maxmemory;   /* Max number of memory bytes to use */
+    unsigned long long maxmemory;   /* 最大可以使用的内存 Max number of memory bytes to use */
     int maxmemory_policy;           /* 键淘汰策略 Policy for key eviction */
     int maxmemory_samples;          /* 随机抽样的精度 Pricision of random sampling */
     /* Blocked clients */
@@ -1047,7 +1069,7 @@ struct redisServer {
     /* Pubsub */
     dict *pubsub_channels;  /* 订阅客户端的映射频道 字典。。键是某个订阅的频道 ，值是一个链表，记录了所有订阅的客户端 Map channels to list of subscribed clients */
     list *pubsub_patterns;  /* A list of pubsub_patterns */
-    int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
+    int notify_keyspace_events; /* 事件通过发布订阅传播 Events to propagate via Pub/Sub. This is an
                                    xor of NOTIFY_... flags. */
     /* Cluster */
     int cluster_enabled;      /* Is cluster enabled? */
@@ -1059,7 +1081,7 @@ struct redisServer {
     int cluster_require_full_coverage; /* If true, put the cluster down if
                                           there is at least an uncovered slot.*/
     /* Scripting */
-    lua_State *lua; /* The Lua interpreter. We use just one for all clients */
+    lua_State *lua; /* 对所有客户端使用一个 The Lua interpreter. We use just one for all clients */
     client *lua_client;   /* 从Lua中查询Redis的“假客户端” The "fake client" to query Redis from Lua */
     client *lua_caller;   /* 客户端正在运行EVAL，或者NULL The client running EVAL right now, or NULL */
     dict *lua_scripts;         /* A dictionary of SHA1 -> Lua scripts */
@@ -1103,14 +1125,14 @@ struct redisCommand {
     redisCommandProc *proc; //命令实现的函数指针
     int arity;
     char *sflags; /* 字符串表现的标记 Flags as string representation, one char per flag. */
-    int flags;    /* The actual flags, obtained from the 'sflags' field. */
+    int flags;    /* 实际的标记 The actual flags, obtained from the 'sflags' field. */
     /* Use a function to determine keys arguments in a command line.
      * Used for Redis Cluster redirect. */
     redisGetKeysProc *getkeys_proc;
     /* What keys should be loaded in background when calling this command? */
     int firstkey; /* 第一个参数是一个key The first argument that's a key (0 = no keys) */
     int lastkey;  /* The last argument that's a key */
-    int keystep;  /* The step between first and last key */
+    int keystep;  /* 第一个和最后一个键的步骤 The step between first and last key */
     long long microseconds, calls;
 };
 
@@ -1175,10 +1197,10 @@ typedef struct {
  * Extern declarations
  *----------------------------------------------------------------------------*/
 //外部变量
-extern struct redisServer server;
+extern struct redisServer server; 
 extern struct sharedObjectsStruct shared;
-extern dictType setDictType;
-extern dictType zsetDictType;
+extern dictType setDictType; //集合字典类型
+extern dictType zsetDictType; //有序集合字典类型        
 extern dictType clusterNodesDictType;
 extern dictType clusterNodesBlackListDictType;
 extern dictType dbDictType;

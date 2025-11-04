@@ -4,6 +4,12 @@
 ** See Copyright Notice in lua.h
 */
 
+/*
+ get familiar with the external C API.  
+ 
+ Don't bother with the pattern matcher though.  Just the easy functions.
+
+*/
 
 #include <stdlib.h>
 #include <math.h>

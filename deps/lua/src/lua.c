@@ -17,7 +17,7 @@
 #include "lauxlib.h"
 #include "lualib.h"
 
-
+// 解释器
 
 static lua_State *globalL = NULL;
 

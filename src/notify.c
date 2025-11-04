@@ -101,6 +101,7 @@ void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
     int len = -1;
     char buf[24];
 
+    /*配置文件里配置*/
     /* 如果此事件类型的通知没有开启，那么就立即返回 */
     /* If notifications for this class of events are off, return ASAP. */
     if (!(server.notify_keyspace_events & type)) return;
@@ -108,8 +109,11 @@ void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
     eventobj = createStringObject(event,strlen(event));
 
     /** # 发送键空间通知 */
+
+    /* 以键为中心  在这个键上发生了什么事件*/
     /* __keyspace@<db>__:<key> <event> notifications. */
     if (server.notify_keyspace_events & NOTIFY_KEYSPACE) {
+        //通过以 __keyspace@<db>__ 开头的频道，Redis 允许客户端‌订阅特定数据库（db）中键（key）的操作事件
         chan = sdsnewlen("__keyspace@",11);
         len = ll2string(buf,sizeof(buf),dbid);
         chan = sdscatlen(chan, buf, len);
@@ -119,6 +123,8 @@ void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
         pubsubPublishMessage(chanobj, eventobj);
         decrRefCount(chanobj);
     }
+    /* 以事件为中心  在这个事件上有哪些键*/
+    /* 判断 是否配置了通知事件配置  */
     /** # 发送键事件通知 */
     /* __keyevente@<db>__:<event> <key> notifications. */
     if (server.notify_keyspace_events & NOTIFY_KEYEVENT) {

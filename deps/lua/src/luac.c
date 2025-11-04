@@ -23,6 +23,9 @@
 #include "lstring.h"
 #include "lundump.h"
 
+
+// 字节码解释器
+
 #define PROGNAME	"luac"		/* default program name */
 #define	OUTPUT		PROGNAME ".out"	/* default output file */
 

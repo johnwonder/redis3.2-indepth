@@ -18,6 +18,10 @@
 #include "ltable.h"
 #include "ltm.h"
 
+/*
+ 元方法处理，现在重新读取所有的lvm.c。
+*/
+
 
 
 const char *const luaT_typenames[] = {

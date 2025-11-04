@@ -506,6 +506,8 @@ void getRandomHexChars(char *p, unsigned int len) {
             counter++;
 
             memcpy(p,digest,copylen);
+
+            /* 转换成十六进制数字 */
             /* Convert to hex digits. */
             for (j = 0; j < copylen; j++) p[j] = charset[p[j] & 0x0F];
             len -= copylen;

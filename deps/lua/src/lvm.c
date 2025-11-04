@@ -27,6 +27,19 @@
 #include "lvm.h"
 
 
+/*
+ 向下滚动到luaV_execute，主解释器循环。查看所有指令是如何实现的。现在跳过细节。重读。
+*/
+
+
+// 经过分析阶段后，生成了对应的字节码，第二步就是将这些字节码装载到
+// 虚拟机中执行。Lua虚拟机相关的代码在lvm.c中，虚拟机执行的主函数
+// 是luaV_execute,不难想象这个函数是一个大的循环，依次从字节码中
+// 取出指令并执行。Lua虚拟机对外看到的数据结构是lua_State,这个结构体
+// 将一直贯穿整个分析以及执行阶段。除了虚拟机的执行以外，Lua的核心部分还包括了
+// 进行函数调用和返回处理的相关代码，主要处理函数调用前后环境的准备和还原，
+// 这部分代码在ldo.c中，垃圾回收部分的代码在lgc.c中。Lua是一门嵌入式的脚本语言，
+// 这意味着它的设计目标之一必须满足与宿主系统进行交互，这部分代码在lapi.c中。
 
 /* limit for table tag-method chains (to avoid loops) */
 #define MAXTAGLOOP	100
@@ -344,6 +357,14 @@ static void Arith (lua_State *L, StkId ra, const TValue *rb,
 
 #define runtime_check(L, c)	{ if (!(c)) break; }
 
+//RA,RB,RC 以参数为偏移量在函数栈中取数据
+//RKB,RKC的意思有两层，第一层 是这个指令格式只可能作用在OpCode的B,C参数上，
+//不会作用在参数A上；第二层意思是这个数据除了从函数栈中获取之外，还可能从常量数组
+//也就是K数组中获取，关键在于宏ISK的判断
+
+//从寄存器中取指令也就是在前面以R开头的宏中，实际会使用一个base再加上对应的地址
+//base值保存的是函数栈基地址，
+
 #define RA(i)	(base+GETARG_A(i))
 /* to be used after possible stack reallocation */
 #define RB(i)	check_exp(getBMode(GET_OPCODE(i)) == OpArgR, base+GETARG_B(i))
@@ -352,6 +373,8 @@ static void Arith (lua_State *L, StkId ra, const TValue *rb,
 	ISK(GETARG_B(i)) ? k+INDEXK(GETARG_B(i)) : base+GETARG_B(i))
 #define RKC(i)	check_exp(getCMode(GET_OPCODE(i)) == OpArgK, \
 	ISK(GETARG_C(i)) ? k+INDEXK(GETARG_C(i)) : base+GETARG_C(i))
+
+//不会从函数栈中取数据，直接从K数组（即常量数组中）获取数据。
 #define KBx(i)	check_exp(getBMode(GET_OPCODE(i)) == OpArgK, k+GETARG_Bx(i))
 
 
@@ -373,7 +396,29 @@ static void Arith (lua_State *L, StkId ra, const TValue *rb,
       }
 
 
+/*
+在f_parser函数中，对代码文件的分析返回了Proto指针。这个指针会保存在Closure指针中，
+留待后续使用。
 
+在luaD_precall函数中，将lua_state的savedpc指针指向第一步中Proto结构体的code指针，
+同时准备好函数调用时的栈信息。
+
+在luaV_execute函数中，pc指针指向第2步中的savedpc指针，紧跟着就是一个大的循环，
+依次取出其中的OpCode执行。
+
+执行完毕后，调用luaD_poscall函数恢复到上一个函数的环境。
+
+
+虚拟机的核心。
+提取当前指令的操作码和参数，然后执行与操作码对应的switch跳转。
+
+它是解释器（虚拟机）的主循环。 将当前传入的指令依次执行
+
+最后执行完毕后，还会调用luaD_poscall函数恢复到上一次函数调用的环境
+
+
+1.
+*/
 void luaV_execute (lua_State *L, int nexeccalls) {
   LClosure *cl;
   StkId base;
@@ -381,9 +426,16 @@ void luaV_execute (lua_State *L, int nexeccalls) {
   const Instruction *pc;
  reentry:  /* entry point */
   lua_assert(isLua(L->ci));
-  pc = L->savedpc;
-  cl = &clvalue(L->ci->func)->l;
+  //pc指针存放的是虚拟机的OpCode代码，它最开始从L->savedpc初始化而来，
+  //而L->savedpc在luaD_precall中赋值
+  pc = L->savedpc; //用于保存当前指令的执行位置
+  
+  //当前所在的函数环境（一个即使没有任何函数的Lua文件也对应一个函数环境）
+  cl = &clvalue(L->ci->func)->l; 
+  //当前函数环境的栈base地址
   base = L->base;
+
+  //当前函数环境的常量数组  指令和栈
   k = cl->p->k;
   /* main loop of interpreter */
   for (;;) {
@@ -641,6 +693,7 @@ void luaV_execute (lua_State *L, int nexeccalls) {
         if (b != 0) L->top = ra+b-1;
         if (L->openupval) luaF_close(L, base);
         L->savedpc = pc;
+        //恢复到上次函数调用的环境
         b = luaD_poscall(L, ra);
         if (--nexeccalls == 0)  /* was previous function running `here'? */
           return;  /* no: return */

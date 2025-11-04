@@ -31,7 +31,12 @@
 #include "lzio.h"
 
 
+// 函数调用及栈管理
 
+/*
+ 调用，栈，异常，协程。艰难的阅读。
+
+*/
 
 /*
 ** {======================================================
@@ -114,7 +119,7 @@ int luaD_rawrunprotected (lua_State *L, Pfunc f, void *ud) {
   lj.previous = L->errorJmp;  /* chain new error handler */
   L->errorJmp = &lj;
   LUAI_TRY(L, &lj,
-    (*f)(L, ud);
+    (*f)(L, ud); //调用函数 ⾸次进⼊LUAI_TRY宏的时候，会执行传⼊的f函数
   );
   L->errorJmp = lj.previous;  /* restore old error handler */
   return lj.status;
@@ -153,7 +158,10 @@ void luaD_reallocCI (lua_State *L, int newsize) {
   CallInfo *oldci = L->base_ci;
   luaM_reallocvector(L, L->base_ci, L->size_ci, newsize, CallInfo);
   L->size_ci = newsize;
+
+  //用老的偏移量 加上现在新的基地址 等于新的
   L->ci = (L->ci - oldci) + L->base_ci;
+  //最后位置
   L->end_ci = L->base_ci + L->size_ci - 1;
 }
 
@@ -170,10 +178,13 @@ static CallInfo *growCI (lua_State *L) {
   if (L->size_ci > LUAI_MAXCALLS)  /* overflow while handling overflow? */
     luaD_throw(L, LUA_ERRERR);
   else {
+
+    //扩大2呗
     luaD_reallocCI(L, 2*L->size_ci);
     if (L->size_ci > LUAI_MAXCALLS)
       luaG_runerror(L, "stack overflow");
   }
+  //callinfo指针位置+1
   return ++L->ci;
 }
 
@@ -261,6 +272,18 @@ static StkId tryfuncTM (lua_State *L, StkId func) {
   ((L->ci == L->end_ci) ? growCI(L) : \
    (condhardstacktests(luaD_reallocCI(L, L->size_ci)), ++L->ci))
 
+/*
+ 1. 分析阶段最后的结果就是Proto结构体。在这个结构体中，code成员用于存储指令，
+    f数组用于保存里面嵌套的函数的Proto结构体。
+ 2. 每个环境(再次强调，即使没有任何函数的代码也有对应的环境) 都有自己对应的栈，
+ 3. base指向 这个栈的基地址，top指向这个栈的栈顶地址。取函数栈内的数据，都是以base
+    基地址为基础地址的操作。
+
+ 4. 在虚拟机开始执行指令之前，需要把对应的指令和栈地址切换到所要执行的函数的对应数据上。
+
+
+*/
+
 
 int luaD_precall (lua_State *L, StkId func, int nresults) {
   LClosure *cl;
@@ -269,11 +292,19 @@ int luaD_precall (lua_State *L, StkId func, int nresults) {
     func = tryfuncTM(L, func);  /* check the `function' tag method */
   funcr = savestack(L, func);
   cl = &clvalue(func)->l;
+
+  //保存当前虚拟机执行的指令savedpc到当前CallInfo的savedpc中。此处保存下来是为了
+  //后面调用完毕之后恢复运行。
   L->ci->savedpc = L->savedpc;
+
+  //不是C函数 ，是lua函数
   if (!cl->isC) {  /* Lua function? prepare its call */
     CallInfo *ci;
     StkId st, base;
-    Proto *p = cl->p;
+    //从前面分析阶段生成的Closure指针中，取出保存下来的Proto结构体。
+    //这个结构体中保存的是分析过程完结之后生成的字节码等信息。
+    Proto *p = cl->p; 
+    
     luaD_checkstack(L, p->maxstacksize);
     func = restorestack(L, funcr);
     if (!p->is_vararg) {  /* no varargs? */
@@ -286,14 +317,23 @@ int luaD_precall (lua_State *L, StkId func, int nresults) {
       base = adjust_varargs(L, p, nargs);
       func = restorestack(L, funcr);  /* previous call may change the stack */
     }
+    //从lua_State的base_ci数组中分配一个新的CallInfo指针，存储
+    //前面两步计算出来的信息，切换到这个函数中准备调用
+    //也就是L->ci指针往后移一位
     ci = inc_ci(L);  /* now `enter' new function */
     ci->func = func;
-    L->base = ci->base = base;
+    L->base = ci->base = base; //函数栈的基地址
     ci->top = L->base + p->maxstacksize;
     lua_assert(ci->top <= L->stack_last);
+
+    //将Proto结构体的code成员赋值给lua_State指针的savedpc字段，code成员保留的就是字节码
+    //code就是解析完指令后指令存储的位置。
     L->savedpc = p->code;  /* starting point */
     ci->tailcalls = 0;
     ci->nresults = nresults;
+
+    //把多余的函数参数赋值为nil,比如一个函数定义中需要的是两个参数
+    //实际传入的只有一个，那么多出来的那个参数会被赋值为nil.
     for (st = L->top; st < ci->top; st++)
       setnilvalue(st);
     L->top = ci->top;
@@ -317,6 +357,8 @@ int luaD_precall (lua_State *L, StkId func, int nresults) {
     if (L->hookmask & LUA_MASKCALL)
       luaD_callhook(L, LUA_HOOKCALL, -1);
     lua_unlock(L);
+
+    //调用实际的函数
     n = (*curr_func(L)->c.f)(L);  /* do the actual call */
     lua_lock(L);
     if (n < 0)  /* yielding? */
@@ -356,7 +398,7 @@ int luaD_poscall (lua_State *L, StkId firstResult) {
     setobjs2s(L, res++, firstResult++);
   while (i-- > 0)
     setnilvalue(res++);
-  L->top = res;
+  L->top = res; //top指向最后result的地方
   return (wanted - LUA_MULTRET);  /* 0 iff wanted == LUA_MULTRET */
 }
 
@@ -374,8 +416,15 @@ void luaD_call (lua_State *L, StkId func, int nResults) {
     else if (L->nCcalls >= (LUAI_MAXCCALLS + (LUAI_MAXCCALLS>>3)))
       luaD_throw(L, LUA_ERRERR);  /* error while handing stack error */
   }
+
+  //在调用函数之前，一般会调用luaD_precall函数
+  //1.保存当前虚拟机执行的指令savedpc到当前CallInfo的savedpc中。此处保存下来是为了
+  //后面调用完毕之后恢复运行。
+  //2. 分别计算出待调用函数的base,top值，这些值的计算依赖于函数的参数数量。
+  //3. 从lua_State的base_ci数组中分配一个新的CallInfo指针，存储前面两步计算出来的信息，
+  // 切换到这个函数中准备调用
   if (luaD_precall(L, func, nResults) == PCRLUA)  /* is a Lua function? */
-    luaV_execute(L, 1);  /* call it */
+    luaV_execute(L, 1);  /* call it  虚拟机执行代码的主函数  取出生成的Proto结构体中的指令执行 */
   L->nCcalls--;
   luaC_checkGC(L);
 }
@@ -488,20 +537,49 @@ struct SParser {  /* data to `f_parser' */
   const char *name;
 };
 
+
+/*
+  完成词法分析之后，返回了Proto类型的指针tf,然后将其绑定在新
+  创建的Closure指针上，初始化UpValue,最后压入栈中。
+
+  词法分析之后产生的字节码等相关数据都在这个Proto类型的结构体中，
+  而这个数据又作为Closure保存了下来。留待下一步使用。
+*/
 static void f_parser (lua_State *L, void *ud) {
   int i;
-  Proto *tf;
+  Proto *tf;//产生的字节码等相关数据都在这个Proto类型的结构体中
   Closure *cl;
   struct SParser *p = cast(struct SParser *, ud);
   int c = luaZ_lookahead(p->z);
   luaC_checkGC(L);
+
+  //词法，语法分析阶段的luaY_parser
+  //为了提高效率。Lua一次遍历脚本文件不仅完成了词法分析，还完成了语法分析。
+  //生成的OpCode存放在Proto结构体的code数组中，
+
+  //Proto是分析阶段的产物，执行阶段将使用分析阶段生成的Proto来执行虚拟机指令，
+  //在分析阶段会有许多数据结构参与其中，可他们都是临时用于分析阶段的，
+  //或者说最终都是用来辅助生成Proto结构体的。
+
+  //可以看到，Proto结构体是分析阶段和执行阶段的纽带。只要抓住了Proto结构体
+  //这个数据的流向，就能对从分析阶段到执行的整个流程有大体的了解。
   tf = (luaY_parser)(L, p->z,
                                                              &p->buff, p->name);
+  
+ 
   cl = luaF_newLclosure(L, tf->nups, hvalue(gt(L)));
+
+   //脚本编译之后的结果，被虚拟机运行前，要创建这样一个实例来存放这些编译结果和执行状态
   cl->l.p = tf;
+
+
   for (i = 0; i < tf->nups; i++)  /* initialize eventual upvalues */
     cl->l.upvals[i] = luaF_newupval(L);
+
+  //Closure指针放入Lua栈
   setclvalue(L, L->top, cl);
+
+  //L->top 指针 增加1
   incr_top(L);
 }
 

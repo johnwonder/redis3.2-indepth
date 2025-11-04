@@ -400,6 +400,11 @@ robj *tryObjectEncoding(robj *o) {
     sds s = o->ptr;
     size_t len;
 
+    /*
+        确保这是string对象，这个方法只编码这个类型
+        其他类型使用编码的内存高效表示，但由实现该类型的命令处理
+    */
+    /*  */
     /* Make sure this is a string object, the only type we encode
      * in this function. Other types use encoded memory efficient
      * representations but are handled by the commands implementing
@@ -424,10 +429,28 @@ robj *tryObjectEncoding(robj *o) {
      * they are not handled. We handle them only as values in the keyspace. */
      if (o->refcount > 1) return o;
 
+    /*
+      检查是否可以将该字符串表示为长整数。请注意，我们确定大于20个字符的字符串不能表示为32位或64位整数
+    */
     /* Check if we can represent this string as a long integer.
      * Note that we are sure that a string larger than 20 chars is not
      * representable as a 32 nor 64 bit integer. */
     len = sdslen(s);
+
+    /*
+      核心原因：整数表示范围限制
+        ‌32位整数范围‌：
+
+        最小值：-2147483648（11字符：-2147483648）
+        最大值：2147483647（10字符：2147483647）
+        ‌最大字符串长度：11字符‌
+        ‌64位整数范围‌：
+
+        最小值：-9223372036854775808（20字符：-9223372036854775808）
+        最大值：9223372036854775807（19字符：9223372036854775807）
+        ‌最大字符串长度：20字符
+    */
+    //如果字符串长度小于等于20 且是数字
     if (len <= 20 && string2l(s,len,&value)) {
         //此对象可作为长代码进行编码。尝试使用共享对象。
         //注意，当使用maxmemory时，我们避免使用共享整数，
@@ -442,17 +465,27 @@ robj *tryObjectEncoding(robj *o) {
             value >= 0 &&
             value < OBJ_SHARED_INTEGERS)
         {
-            decrRefCount(o);
+            //value要小于10000
+            decrRefCount(o);//释放当前对象
+            //共享整数增加引用计数
             incrRefCount(shared.integers[value]);
             return shared.integers[value];
         } else {
             if (o->encoding == OBJ_ENCODING_RAW) sdsfree(o->ptr);
             o->encoding = OBJ_ENCODING_INT;
+            //用void*来  保证局部变量不被回收
             o->ptr = (void*) value;
+
+            //OBJ_ENCODING_INT 的释放就是 释放robj
             return o;
         }
     }
 
+    /*
+       如果字符串足够小且是RAW编码
+       尝试使用更高效的EMBSTR编码
+       在这种表示中，对象和SDS字符串被分配在相同的内存块中，以节省空间和缓存丢失
+     */
     /* If the string is small and is still RAW encoded,
      * try the EMBSTR encoding which is more efficient.
      * In this representation the object and the SDS string are allocated
@@ -462,12 +495,15 @@ robj *tryObjectEncoding(robj *o) {
         //已经是embstr了 就直接返回
         if (o->encoding == OBJ_ENCODING_EMBSTR) return o;
         emb = createEmbeddedStringObject(s,sdslen(s));
+
+        //降低o的引用计数，释放原来的robj
         decrRefCount(o);
         return emb;
     }
 
     /* We can't encode the object...
      *
+       进行最后一次尝试，并至少优化字符串对象内的SDS字符串以需要很少的空间，以防在SDS字符串的末尾有超过10%的可用空间
      * Do the last try, and at least optimize the SDS string inside
      * the string object to require little space, in case there
      * is more than 10% of free space at the end of the SDS string.
@@ -480,7 +516,8 @@ robj *tryObjectEncoding(robj *o) {
     if (o->encoding == OBJ_ENCODING_RAW &&
         sdsavail(s) > len/10)
     {
-        //如果对象编码为raw 且 剩余空间 大于 长度的十分之一
+        //sdsavail 是用alloc - len 就是还有效的空间
+        //如果对象编码为raw 且 剩余空间 大于 现在长度的十分之一
         //那么就移除空闲空间
         o->ptr = sdsRemoveFreeSpace(o->ptr);
     }
@@ -522,6 +559,23 @@ robj *getDecodedObject(robj *o) {
 #define REDIS_COMPARE_BINARY (1<<0)
 #define REDIS_COMPARE_COLL (1<<1)
 
+/**
+ * 假设有以下字符串，按 REDIS_COMPARE_BINARY 排序结果为：
+plaintext
+"a"    → 字节值 97
+"a1"   → 字节序列 [97, 49]
+"a2"   → 字节序列 [97, 50]
+"a10"  → 字节序列 [97, 49, 48]
+"b"    → 字节值 98
+排序后顺序："a" → "a1" → "a10" → "a2" → "b"
+可以看到，这与传统的字典序（lexicographical order）一致，
+因为 "a10" 中第二个字节是 '1'（49），小于 "a2" 中的 '2'（50），
+所以 "a10" 排在 "a2" 前面 —— 这与人类习惯的数字排序（a1 < a2 < a10）不同。
+ * 
+ * 
+ * 
+ */
+
 int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
     serverAssertWithInfo(NULL,a,a->type == OBJ_STRING && b->type == OBJ_STRING);
     char bufa[128], bufb[128], *astr, *bstr;
@@ -543,6 +597,7 @@ int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
         bstr = bufb;
     }
     if (flags & REDIS_COMPARE_COLL) {
+        //在中文locale下，设置后，strcoll("北京", "上海")将返回基于拼音顺序的比较结果。
         return strcoll(astr,bstr);
     } else {
         int cmp;
@@ -573,6 +628,7 @@ int compareStringObjects(robj *a, robj *b) {
 
 /* Wrapper for compareStringObjectsWithFlags() using collation. */
 int collateStringObjects(robj *a, robj *b) {
+    //使用strcoll函数
     return compareStringObjectsWithFlags(a,b,REDIS_COMPARE_COLL);
 }
 
@@ -744,6 +800,8 @@ char *strEncoding(int encoding) {
 }
 
 /*服务器的 LRU 时钟减去对象本身的时钟，得到的就是这个对象没有被访问的时间间隔（也称空闲时间*/
+
+/*estimate是判断 估计的意思*/
 /* Given an object returns the min number of milliseconds the object was never
  * requested, using an approximated LRU algorithm. */
 unsigned long long estimateObjectIdleTime(robj *o) {
@@ -751,6 +809,13 @@ unsigned long long estimateObjectIdleTime(robj *o) {
     if (lruclock >= o->lru) {
         return (lruclock - o->lru) * LRU_CLOCK_RESOLUTION;
     } else {
+
+        //这个公式的原理是将回绕前后的时间相加：LRU_CLOCK_MAX - o->lru计算回绕前的时间段，
+        //lruclock计算回绕后的时间段，两者之和即为真实的空闲时间
+
+        /*
+          也就是LRUClock时间 在 对象的最近访问时间之后了
+        */
         return (lruclock + (LRU_CLOCK_MAX - o->lru)) *
                     LRU_CLOCK_RESOLUTION;
     }

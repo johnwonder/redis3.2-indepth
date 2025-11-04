@@ -280,10 +280,10 @@ struct redisCommand redisCommandTable[] = {
     {"shutdown",shutdownCommand,-1,"alt",0,NULL,0,0,0,0,0},
     {"lastsave",lastsaveCommand,1,"RF",0,NULL,0,0,0,0,0},//用于获取最后一次成功执行数据保存操作（SAVE 或 BGSAVE）的时间戳
     {"type",typeCommand,2,"rF",0,NULL,1,1,1,0,0}, //命令用于返回指定键（key）所存储的值的类型
-    {"multi",multiCommand,1,"sF",0,NULL,0,0,0,0,0},
+    {"multi",multiCommand,1,"sF",0,NULL,0,0,0,0,0}, //s 代表命令不允许在脚本中执行 F 代表命令是快速的
     //multi 命令是事务（transaction）的起始命令。Redis事务是一组能够一次性、按顺序执行的命令，这些命令在事务执行期间不会被其他客户端的命令所打断。事务中的命令会按照它们被发送的顺序来执行，
     //而且在事务执行之前，所有的命令都会被先放入队列中，等到EXEC命令被调用时，它们才会被依次执行。
-    {"exec",execCommand,1,"sM",0,NULL,0,0,0,0,0},
+    {"exec",execCommand,1,"sM",0,NULL,0,0,0,0,0}, //s代表 不运行在脚本中执行 M不自动在MONITOR上传播命令
     {"discard",discardCommand,1,"sF",0,NULL,0,0,0,0,0},
     {"sync",syncCommand,1,"ars",0,NULL,0,0,0,0,0},
     {"psync",syncCommand,3,"ars",0,NULL,0,0,0,0,0},
@@ -401,15 +401,25 @@ void serverLogRaw(int level, const char *msg) {
         //用于根据区域设置格式化本地时间/日期。它能够将时间信息转换成人类可读的字符串形式
         //函数会返回写入 strDest 的字符数（不包括终止的空字符）
         off = strftime(buf,sizeof(buf),"%d %b %H:%M:%S.",localtime(&tv.tv_sec));
+        //比如 30 May 09:54:04.968
         
+        //snprintf 是 C 语言标准库中的一个格式化输出函数，
+        //用于将格式化数据安全地写入字符数组（字符串缓冲区），‌避免缓冲区溢出‌（比 sprintf 更安全）
+        //%03d 表示用 ‌前导零（Zero-padding）‌ 填充不足的位数。
         snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
         if (server.sentinel_mode) {
             role_char = 'X'; /* 哨兵 Sentinel. */
         } else if (pid != server.pid) {
+
+            //使用./redis-server 启动的时候竟然会到这里
+            // 因为 server.pid 要到initServer 的时候去初始化
             role_char = 'C'; /* RDB / AOF 子进程 RDB / AOF writing child. */
         } else {
             role_char = (server.masterhost ? 'S':'M'); /* Slave or Master. */
         }
+        //%d:%c = 2268:A 
+        //%s = 30 May 09:54:04.968
+        //%c = #
         fprintf(fp,"%d:%c %s %c %s\n",
             (int)getpid(),role_char, buf,c[level],msg);
     }
@@ -570,7 +580,7 @@ void dictObjectDestructor(void *privdata, void *val)
     DICT_NOTUSED(privdata);
 
     if (val == NULL) return; /* 交换出的键值设置为NULL Values of swapped out keys as set to NULL */
-    decrRefCount(val);
+    decrRefCount(val); //
 }
 
 void dictSdsDestructor(void *privdata, void *val)
@@ -667,6 +677,7 @@ dictType zsetDictType = {
     NULL                       /* val destructor */
 };
 
+/*键是sds字符串，值是redis对象*/
 /* Db->dict, keys are sds strings, vals are Redis objects. */
 dictType dbDictType = {
     dictSdsHash,                /* hash function */
@@ -853,6 +864,10 @@ void updateDictResizePolicy(void) {
 
 /* ======================= Cron: called every 100 ms ======================== */
 
+/*
+ 这个函数将尝试过期存储在Redis数据库‘expires’哈希表的‘de’哈希表项中的键。
+ 参数‘now’是以毫秒为单位传递给函数的当前时间，以避免过多的gettimeofday（）系统调用。
+*/
 /* Helper function for the activeExpireCycle() function.
  * This function will try to expire the key that is stored in the hash table
  * entry 'de' of the 'expires' hash table of a Redis database.
@@ -867,13 +882,25 @@ void updateDictResizePolicy(void) {
 int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
     long long t = dictGetSignedIntegerVal(de);
     if (now > t) {
+ 
+        //expire字典中的key
         sds key = dictGetKey(de);
+        
+        serverLog(LL_NOTICE,"key %s now: %lld expire: %lld .",key,now,t);
+        /*创建key 对象*/
         robj *keyobj = createStringObject(key,sdslen(key));
 
         propagateExpire(db,keyobj);
+        /* 删除key */
+        /*内部会删除expires字典中的dictEntry*/
+        /*和主字典中的dictEntry*/
         dbDelete(db,keyobj);
+
+        /* 通知事件 */
         notifyKeyspaceEvent(NOTIFY_EXPIRED,
             "expired",keyobj,db->id);
+        
+        /*降低keyObj的引用计数*/
         decrRefCount(keyobj);
         server.stat_expiredkeys++;
         return 1;
@@ -884,6 +911,10 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
 
 //尝试过期一些超时的key.使用的算法是自适应的,如果过期密钥较少，将使用较少的CPU周期。
 //否则，它将变得更加激进，以避免 可以删除的key使用过多的内存
+
+/*
+  在每次迭代中测试的数据库不超过CRON_DBS_PER_CALL
+*/
 /* Try to expire a few timed out keys. The algorithm used is adaptive and
  * will use few CPU cycles if there are few expiring keys, otherwise
  * it will get more aggressive to avoid that too much memory is used by
@@ -911,12 +942,13 @@ void activeExpireCycle(int type) {
     /*此函数具有一些全局状态，以便在调用之间增量地继续工作*/
     /* This function has some global state in order to continue the work
      * incrementally across calls. */
-    static unsigned int current_db = 0; /* Last DB tested. */
-    static int timelimit_exit = 0;      /* Time limit hit in previous call? */
-    static long long last_fast_cycle = 0; /* When last fast cycle ran. */
+    static unsigned int current_db = 0; /* 最新测试的数据库 Last DB tested. */
+    static int timelimit_exit = 0;      /* 在上次调用后时间限制 Time limit hit in previous call? */
+    static long long last_fast_cycle = 0; /*最后一次跑的时间 When last fast cycle ran. */
 
     int j, iteration = 0;
-    int dbs_per_call = CRON_DBS_PER_CALL;
+    int dbs_per_call = CRON_DBS_PER_CALL; //16
+    //开始时间 
     long long start = ustime(), timelimit;
 
     //通过 CLIENT PAUSE timeout 命令 暂停所有客户端的命令 
@@ -926,11 +958,17 @@ void activeExpireCycle(int type) {
      * expires and evictions of keys not being performed. */
      if (clientsArePaused()) return;
 
+    //类型为1也就是快速过期的时候才会进入
     if (type == ACTIVE_EXPIRE_CYCLE_FAST) {
+
+        /*如果上一个周期没有在规定时间内退出 那就不开始*/
         /* Don't start a fast cycle if the previous cycle did not exited
          * for time limt. Also don't repeat a fast cycle for the same period
          * as the fast cycle total duration itself. */
         if (!timelimit_exit) return;
+
+        //ACTIVE_EXPIRE_CYCLE_FAST_DURATION = 1000
+        //开始时间 小于 最后一次时间+2秒 就返回 也就是2秒内又进入的话就返回
         if (start < last_fast_cycle + ACTIVE_EXPIRE_CYCLE_FAST_DURATION*2) return;
         last_fast_cycle = start;
     }
@@ -941,33 +979,45 @@ void activeExpireCycle(int type) {
     /* We usually should test CRON_DBS_PER_CALL per iteration, with
      * two exceptions:
      *
-     * 1) Don't test more DBs than we have.
+     * 1) Don't test more DBs than we have. 不要测试比我们多的数据库
      * 2) If last time we hit the time limit, we want to scan all DBs
      * in this iteration, as there is work to do in some DB and we don't want
-     * expired keys to use memory for too much time. */
+     * expired keys to use memory for too much time. 
+     * 如果上次我们达到了时间限制，我们希望在这个迭代中扫描所有DB，因为在某些DB中有工作要做，我们不希望过期的键占用内存太长时间
+     * */
     if (dbs_per_call > server.dbnum || timelimit_exit)
-        dbs_per_call = server.dbnum;
+        dbs_per_call = server.dbnum;//调用就是数据库数量
 
     /* We can use at max ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC percentage of CPU time
      * per iteration. Since this function gets called with a frequency of
      * server.hz times per second, the following is the max amount of
      * microseconds we can spend in this function. */
+    /* ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC =25 */
+    /*  */
     timelimit = 1000000*ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC/server.hz/100;
     timelimit_exit = 0;
     if (timelimit <= 0) timelimit = 1;
 
+    /*快速模式下 timelimit 直接为1000ms 也就是1秒*/
     if (type == ACTIVE_EXPIRE_CYCLE_FAST)
-        timelimit = ACTIVE_EXPIRE_CYCLE_FAST_DURATION; /* in microseconds. */
+        timelimit = ACTIVE_EXPIRE_CYCLE_FAST_DURATION; /* 1000ms  in microseconds. */
 
+    /*循环遍历 16个数据库 */
     for (j = 0; j < dbs_per_call; j++) {
         int expired;
+
+        // current_db % server.dbnum 取余 比如 10%16 =10
         redisDb *db = server.db+(current_db % server.dbnum);
 
         /* Increment the DB now so we are sure if we run out of time
          * in the current DB we'll restart from the next. This allows to
          * distribute the time evenly across DBs. */
+        /*
+         现在增加DB，这样我们就可以确定，如果我们在当前DB中耗尽了时间，我们将从下一个DB重新启动。这允许在db之间均匀地分配时间。
+        */
         current_db++;
 
+        /*如果在周期结束时超过25% 1/4 的密钥已过期，则继续过期*/
         /* Continue to expire if at the end of the cycle more than 25%
          * of the keys were expired. */
         do {
@@ -975,14 +1025,18 @@ void activeExpireCycle(int type) {
             long long now, ttl_sum;
             int ttl_samples;
 
+            /*如果没有要过期的，请尽快尝试下一个DB。*/
             /* If there is nothing to expire try next DB ASAP. */
             if ((num = dictSize(db->expires)) == 0) {
                 db->avg_ttl = 0;
-                break;
+                break; //直接下一个循环
             }
+            /* 第1个和第2个数据库大小的和 */
             slots = dictSlots(db->expires);
+            /* 当前时间 */
             now = mstime();
 
+            /*小于 1%的*/
             /* When there are less than 1% filled slots getting random
              * keys is expensive, so stop here waiting for better times...
              * The dictionary will be resized asap. */
@@ -996,6 +1050,9 @@ void activeExpireCycle(int type) {
             ttl_sum = 0;
             ttl_samples = 0;
 
+            //num为 expires字典中key的数量
+            //最多20个
+            //ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP = 20
             if (num > ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP)
                 num = ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP;
 
@@ -1004,17 +1061,24 @@ void activeExpireCycle(int type) {
                 long long ttl;
 
                 /* https://zhuanlan.zhihu.com/p/419020079 */
+                /*从过期数据库里找随机key */
                 if ((de = dictGetRandomKey(db->expires)) == NULL) break;
+                //离当前还有多少时间
                 ttl = dictGetSignedIntegerVal(de)-now;
+
+                /*删除当前key 内部还会判断有无过期 */
                 if (activeExpireCycleTryExpire(db,de,now)) expired++;
                 if (ttl > 0) {
+
+                    /*我们希望密钥的平均TTL还没有过期*/
                     /* We want the average TTL of keys yet not expired. */
                     ttl_sum += ttl;
-                    ttl_samples++;
+                    ttl_samples++; //样例增加
                 }
             }
 
             /* Update the average TTL stats for this database. */
+            /* 更新此数据库的平均TTL统计信息 */
             if (ttl_samples) {
                 long long avg_ttl = ttl_sum/ttl_samples;
 
@@ -1029,20 +1093,26 @@ void activeExpireCycle(int type) {
              * expire. So after a given amount of milliseconds return to the
              * caller waiting for the other active expire cycle. */
             iteration++;
+
+            //每16次迭代就检查一次
             if ((iteration & 0xf) == 0) { /* check once every 16 iterations. */
                 long long elapsed = ustime()-start;
 
                 latencyAddSampleIfNeeded("expire-cycle",elapsed/1000);
+
+
                 if (elapsed > timelimit) timelimit_exit = 1;
             }
             if (timelimit_exit) return;
             /* We don't repeat the cycle if there are less than 25% of keys
              * found expired in the current DB. */
-        } while (expired > ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP/4);
+            /* 如果当前DB中发现的过期键数少于25%，则不重复此循环 */
+        } while (expired > ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP/4); 
     }
 }
 
 unsigned int getLRUClock(void) {
+    //mstime 是返回毫秒数 那么 /LRU_CLOCK_RESOLUTION 就是秒数
     return (mstime()/LRU_CLOCK_RESOLUTION) & LRU_CLOCK_MAX;
 }
 
@@ -1078,6 +1148,11 @@ long long getInstantaneousMetric(int metric) {
     return sum / STATS_METRIC_SAMPLES;
 }
 
+
+/*
+  检测超时。如果客户端终止就返回非0.
+
+*/
 /* Check for timeouts. Returns non-zero if the client was terminated.
  * The function gets the current time in milliseconds as argument since
  * it gets called multiple times in a loop, so calling gettimeofday() for
@@ -1085,6 +1160,11 @@ long long getInstantaneousMetric(int metric) {
 int clientsCronHandleTimeout(client *c, mstime_t now_ms) {
     time_t now = now_ms/1000;
 
+    /*
+    
+        如果最大空闲时间大于0 且 不是slave master ,block, pub sub的客户端
+        且 当前时间减去客户端最后活跃时间 大于 最大空闲间隔
+    */
     if (server.maxidletime &&
         !(c->flags & CLIENT_SLAVE) &&    /* no timeout for slaves */
         !(c->flags & CLIENT_MASTER) &&   /* no timeout for masters */
@@ -1092,7 +1172,10 @@ int clientsCronHandleTimeout(client *c, mstime_t now_ms) {
         !(c->flags & CLIENT_PUBSUB) &&   /* no timeout for Pub/Sub clients */
         (now - c->lastinteraction > server.maxidletime))
     {
+        //判断lastinteraction 是否大于了配置的最大空闲时间
         serverLog(LL_VERBOSE,"Closing idle client");
+
+        
         freeClient(c);
         return 1;
     } else if (c->flags & CLIENT_BLOCKED) {
@@ -1164,9 +1247,26 @@ void clientsCron(void) {
      * we are sure that in the worst case we process all the clients in 1
      * second. */
     int numclients = listLength(server.clients);
+
+    /*
+        #define CONFIG_DEFAULT_HZ        10      
+        #define CONFIG_MIN_HZ            1  
+        #define CONFIG_MAX_HZ            500  
+    */
     int iterations = numclients/server.hz;
     mstime_t now = mstime();
 
+    /*
+      至少处理几个客户端，即使我们需要处理少于5个客户端来满足每秒处理一次每个客户端
+
+      如果每次要处理的 小于 最少要处理的 ，
+      那么就判断 当前客户端数量 ，如果客户端数量小于最少要处理的
+      那就 这次要处理的数量就是客户端总数
+      否则就是 最少要处理的
+
+      //比如numclients = 40, server.hz =10 
+      //那么iterations就是4 这时候iterations就变为5 
+    */
     /* Process at least a few clients while we are at it, even if we need
      * to process less than CLIENTS_CRON_MIN_ITERATIONS to meet our contract
      * of processing each client once per second. */
@@ -1174,16 +1274,32 @@ void clientsCron(void) {
         iterations = (numclients < CLIENTS_CRON_MIN_ITERATIONS) ?
                      numclients : CLIENTS_CRON_MIN_ITERATIONS;
 
+    /*
+      
+    */
     while(listLength(server.clients) && iterations--) {
         client *c;
         listNode *head;
 
+        /*
+        
+          旋转列表，  取当前头，处理 
+          把原来的尾部节点移到头部
+         
+         */
         /* Rotate the list, take the current head, process.
          * This way if the client must be removed from the list it's the
          * first element and we don't incur into O(N) computation. */
         listRotate(server.clients);
+
+        /*取head节点*/
         head = listFirst(server.clients);
         c = listNodeValue(head);
+
+        /* 
+            以下方法对客户端 做不同的方法检查
+            协议就是 如果客户端终止了 就返回非0
+         */
         /* The following functions do different service checks on the client.
          * The protocol is that they return non-zero if the client was
          * terminated. */
@@ -1200,6 +1316,8 @@ void clientsCron(void) {
 void databasesCron(void) {
     /*
       通过随机采样使key过期。slave不需要，因为master会为我们合成DEL
+
+      //定期删除里用的是slow类型
     */
     /* Expire keys by random sampling. Not required for slaves
      * as master will synthesize DELs for us. */
@@ -1348,6 +1466,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      *
      * Note that you can change the resolution altering the
      * LRU_CLOCK_RESOLUTION define. */
+
+    /*更新lruclock */
     server.lruclock = getLRUClock();
 
     /* Record the max memory used since the server was started. */
@@ -1555,6 +1675,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     server.cronloops++;
+    
+    //1000毫秒 / 10 等于 100毫秒 那就是 1/10 秒
     return 1000/server.hz;
 }
 
@@ -1570,6 +1692,8 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     * later in this function. */
     if (server.cluster_enabled) clusterBeforeSleep();
 
+    /*运行一个快速的过期周期 如果快速过期不需要那么调用方法会立即返回 */
+    /* 从库不会执行 因为如果是从库 那么server.masterhost不为空 */
     /* Run a fast expire cycle (the called function will return
      * ASAP if a fast cycle is not needed). */
     if (server.active_expire_enabled && server.masterhost == NULL)
@@ -1775,7 +1899,7 @@ void initServerConfig(void) {
     server.notify_keyspace_events = 0; //默认是否开启键空间事件通知
     server.maxclients = CONFIG_DEFAULT_MAX_CLIENTS; //默认最多10000个客户端连接
     server.bpop_blocked_clients = 0; //多少个客户端因为bpop阻塞
-    server.maxmemory = CONFIG_DEFAULT_MAXMEMORY; //最大内存
+    server.maxmemory = CONFIG_DEFAULT_MAXMEMORY; //最大内存 默认为0 0代表不使用任何内存限制
     server.maxmemory_policy = CONFIG_DEFAULT_MAXMEMORY_POLICY; //最大内存策略 默认为 NO_EVICTION
     server.maxmemory_samples = CONFIG_DEFAULT_MAXMEMORY_SAMPLES; //随机抽样精度默认是5
     //跟默认配置一样
@@ -1961,9 +2085,14 @@ int restartServer(int flags, mstime_t delay) {
  * max number of clients, the function will do the reverse setting
  * server.maxclients to the value that we can actually handle. */
 void adjustOpenFilesLimit(void) {
+    //server.maxclients 默认为CONFIG_DEFAULT_MAX_CLIENTS 10000
+    //CONFIG_MIN_RESERVED_FDS 为 32
+    //所以maxfiles为 10032
     rlim_t maxfiles = server.maxclients+CONFIG_MIN_RESERVED_FDS;
     struct rlimit limit;
 
+    //getrlimit 是 Unix/Linux 系统中的一个系统调用函数，用于获取进程的‌资源限制‌（Resource Limits）。
+    //它允许程序查询当前进程或用户对系统资源（如 CPU 时间、内存、文件大小等）的使用限制。
     if (getrlimit(RLIMIT_NOFILE,&limit) == -1) {
         serverLog(LL_WARNING,"Unable to obtain the current NOFILE limit (%s), assuming 1024 and setting the max clients configuration accordingly.",
             strerror(errno));
@@ -2098,9 +2227,11 @@ void checkTcpBacklogSettings(void) {
 int listenToPort(int port, int *fds, int *count) {
     int j;
 
+    /*如果没有绑定地址指定，那就强制绑定0.0.0.0*/
     /* Force binding of 0.0.0.0 if no bind address is specified, always
      * entering the loop if j == 0. */
     if (server.bindaddr_count == 0) server.bindaddr[0] = NULL;
+
     //即使 server.bindaddr_count 为0 也会循环一次
     //loadServerConfig的时候 如果有配置 那么就加载server.bindaddr_count 就不为0
     for (j = 0; j < server.bindaddr_count || j == 0; j++) {
@@ -2156,7 +2287,13 @@ int listenToPort(int port, int *fds, int *count) {
                 port, server.neterr);
             return C_ERR;
         }
+
+        /*
+          这边很重要 ，设置了非阻塞模式
+          使得accept在没有连接时立即返回
+        */
         anetNonBlock(NULL,fds[*count]);
+
         (*count)++;
     }
     return C_OK;
@@ -2194,6 +2331,8 @@ void resetServerStats(void) {
 
 void initServer(void) {
     int j;
+
+    /*https://cloud.tencent.com/developer/article/2081256*/
     //因此，signal(SIGHUP, SIG_IGN); 这行代码的作用是将 SIGHUP 信号的处理设置为忽略。
     //这意味着，当进程接收到 SIGHUP 信号时，它不会终止，而是会继续运行，就像没有接收到任何信号一样。
     signal(SIGHUP, SIG_IGN);
@@ -2215,10 +2354,10 @@ void initServer(void) {
     server.clients_to_close = listCreate();
     server.slaves = listCreate(); //从列表
     server.monitors = listCreate(); //监控列表
-    server.clients_pending_write = listCreate();
+    server.clients_pending_write = listCreate(); //客户端待写列表
     server.slaveseldb = -1; /* Force to emit the first SELECT command. */
-    server.unblocked_clients = listCreate();
-    server.ready_keys = listCreate();
+    server.unblocked_clients = listCreate(); //非阻塞客户端列表
+    server.ready_keys = listCreate(); 
     server.clients_waiting_acks = listCreate();
     server.get_ack_from_slaves = 0;
     server.clients_paused = 0;
@@ -2230,6 +2369,7 @@ void initServer(void) {
     adjustOpenFilesLimit();
     //默认值为10000 + 128
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
+    //根据服务器配置的数据库数量分配数据库空间
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     //port不为0的时候才会开始监听tcp连接
@@ -2269,6 +2409,8 @@ void initServer(void) {
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;
     }
+
+    //
     server.pubsub_channels = dictCreate(&keylistDictType,NULL);
     server.pubsub_patterns = listCreate();
     listSetFreeMethod(server.pubsub_patterns,freePubsubPattern);
@@ -2376,6 +2518,9 @@ void populateCommandTable(void) {
         char *f = c->sflags;
         int retval1, retval2;
 
+        /*
+          遍历命令标记 加上客户端标记
+        */
         while(*f != '\0') {
             switch(*f) {
             case 'w': c->flags |= CMD_WRITE; break; /*写命令*/
@@ -2795,6 +2940,16 @@ int processCommand(client *c) {
      * go through checking for replication and QUIT will cause trouble
      * when FORCE_REPLICATION is enabled and would be implemented in
      * a regular command proc. */
+
+    /*
+     strcasecmp 是 C 语言中用于不区分大小写比较两个字符串的函数,它属于 POSIX 标准库，定义在 <string.h> 头文件中
+      
+     该函数会比较两个字符串 s1 和 s2，比较时会忽略字符大小写的差异
+     其核心逻辑是，函数会先将两个字符串中的字符统一转换为相同大小写（通常是小写），
+     再逐个字符比较其 ASCII 码值，直到遇到不同字符或字符串结束符
+        
+     不适合中文比较
+    */
     if (!strcasecmp(c->argv[0]->ptr,"quit")) {
         //添加ok回复到输出缓存中
         addReply(c,shared.ok);
@@ -2856,6 +3011,8 @@ int processCommand(client *c) {
         //根据当前客户端 命令 参数查询 hash槽
         clusterNode *n = getNodeByQuery(c,c->cmd,c->argv,c->argc,
                                         &hashslot,&error_code);
+
+        //如果没有得到对应的节点，或者节点不是当前节点
         if (n == NULL || n != server.cluster->myself) {
             if (c->cmd->proc == execCommand) {
                 discardTransaction(c);
@@ -3016,6 +3173,7 @@ int processCommand(client *c) {
     
     */
 
+    // 这里如果执行 monitorCommand 也会入队 所以回复QUEUED
     /* Exec the command */
     if (c->flags & CLIENT_MULTI &&
         c->cmd->proc != execCommand && c->cmd->proc != discardCommand &&
@@ -4288,6 +4446,8 @@ int freeMemoryIfNeeded(void) {
 
 #ifdef __linux__
 int linuxOvercommitMemoryValue(void) {
+    // /proc/sys/vm/overcommit_memory 是 Linux 系统中用于控制内存分配策略的关键参数，
+    // 它决定了内核如何处理进程对内存的过量申请（即申请的虚拟内存超过物理内存和交换空间的总和）。以下是对其作用及配置的详细解释
     FILE *fp = fopen("/proc/sys/vm/overcommit_memory","r");
     char buf[64];
 
@@ -4417,6 +4577,9 @@ void redisAsciiArt(void) {
     zfree(buf);
 }
 
+/*
+  收到退出信号的处理器
+*/
 static void sigShutdownHandler(int sig) {
     char *msg;
 
@@ -4450,11 +4613,25 @@ static void sigShutdownHandler(int sig) {
 void setupSignalHandlers(void) {
     struct sigaction act;
 
+    /*
+      在函数setupSignalHandlers中，变量act是一个局部变量，其内存空间会在函数执行结束后自动释放
+      这是因为act被分配在栈上，当函数返回时，其栈帧被销毁，所有局部变量的内存也随之回收
+        不过，通过sigaction函数注册的信号处理方式（例如这里的sigShutdownHandler）会被内核记录，
+        并在相应的信号（如SIGTERM、SIGINT）递达时调用，这一行为不受局部变量act生命周期的影响
+
+    
+    */
     /* When the SA_SIGINFO flag is set in sa_flags then sa_sigaction is used.
      * Otherwise, sa_handler is used. */
     sigemptyset(&act.sa_mask);
     act.sa_flags = 0;
     act.sa_handler = sigShutdownHandler;
+
+    /*
+      https://cloud.tencent.com/developer/article/2081256
+      signal注册的信号在sa_handler被调用之前把会把信号的sa_handler指针恢复
+      而sigaction注册的信号在处理信号时不会恢复sa_handler指针
+    */
     sigaction(SIGTERM, &act, NULL);
     sigaction(SIGINT, &act, NULL);
 
@@ -4671,8 +4848,9 @@ int main(int argc, char **argv) {
     */
     printf("开始启动\n");
     //定义一个结构体变量
-    struct timeval tv;
-    int j;//声明一个int变量
+    struct timeval tv; //局部变量 函数执行完后释放内存
+    int j;//声明一个int变量 栈上分配，自动释放，需手动初始化
+    //int j; 的作用是「定义变量 + 分配内存」—— 内存已经存在，但里面的数据是不确定的（局部变量）或默认 0（全局 / 静态）；
 
 #ifdef REDIS_TEST
     if (argc == 3 && !strcasecmp(argv[1], "test")) {
@@ -4728,6 +4906,8 @@ int main(int argc, char **argv) {
     并不是所有的编译器都很好的支持"", 例如，Xcode下的LLVM编译器就不支持设置为""
     */
     
+    //LC_COLLATE：指定要设置的本地化类别为 "字符串排序与比较"
+    //第二个参数 ""：表示使用系统环境变量（如 LANG、LC_ALL 等）所指定的当前区域设置
     setlocale(LC_COLLATE,"");
     zmalloc_enable_thread_safeness();
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
@@ -4788,6 +4968,7 @@ int main(int argc, char **argv) {
     server.exec_argv = zmalloc(sizeof(char*) * (argc+1));
     server.exec_argv[argc] = NULL;
     /*zstrdup 内幕是memcpy */
+    //每个参数存在server.exec_argv 数组中 供后续解析参数用
     for (j = 0; j < argc; j++) server.exec_argv[j] = zstrdup(argv[j]); //这边没有使用sds
 
     /*
@@ -4887,7 +5068,7 @@ int main(int argc, char **argv) {
             }
             j++;
         }
-        /*如果当前是哨兵模式 且配置文件名为- */
+        /*如果当前是哨兵模式 且配置文件第一个字符为- */
         if (server.sentinel_mode && configfile && *configfile == '-') {
             serverLog(LL_WARNING,
                 "Sentinel config from STDIN not allowed.");
@@ -4902,6 +5083,8 @@ int main(int argc, char **argv) {
         //这边释放了options
         sdsfree(options);
     } else {
+
+        //没有配置文件就会控制台输出
         serverLog(LL_WARNING, "Warning: no config file specified, using the default config. In order to specify a config file use %s /path/to/%s.conf", argv[0], server.sentinel_mode ? "sentinel" : "redis");
     }
 
@@ -4913,6 +5096,9 @@ int main(int argc, char **argv) {
     if (background) daemonize();
 
     /* 内部会创建事件 */
+    /*
+      内部会判断是否开启了集群，开启集群的话就会初始化
+    */
     initServer();
     /*如果是后台进程 或者 显示创建pid文件 */
     if (background || server.pidfile) createPidFile();

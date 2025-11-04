@@ -348,7 +348,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
 int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     int j, argc = lua_gettop(lua);
     struct redisCommand *cmd;
-    client *c = server.lua_client;
+    client *c = server.lua_client; //当前lua客户端
     sds reply;
 
     /* Cached across calls. */
@@ -897,6 +897,9 @@ void scriptingEnableGlobalsProtection(lua_State *lua) {
  *
  * However it is simpler to just call scriptingReset() that does just that. */
 void scriptingInit(int setup) {
+
+    //lua 5.1 lua.h中有lua_open宏
+    //lua 5.3 lua.h中没有了
     lua_State *lua = lua_open();
 
     if (setup) {
@@ -918,13 +921,29 @@ void scriptingInit(int setup) {
     server.lua_scripts = dictCreate(&shaScriptObjectDictType,NULL);
 
     /* Register the redis commands table and fields */
+    /* 注册 table 在L->top创建一个表 L->top++ */
     lua_newtable(lua);
 
+    //注册redis.call函数
     /* redis.call */
+
+    /*在L->top创建一个call字符串 L->top++ */
     lua_pushstring(lua,"call");
+    /*在L->top创建一个函数 L->top++ */
     lua_pushcfunction(lua,luaRedisCallCommand);
+
+    /*这时候Lua栈为 表 call  函数 top*/
+
+  /* 将栈顶的 value 和 key 组成键值对，写入到目标表中（会同时弹出这两个元素） */
+   
+
+    /* 获取L->top -3 处的 表  L->top -2 的key也就是call L->top -1的value也就是函数*/
+    /* table[key] = value  -- 等价于这个赋值操作 */
+    /*然后让L->top -2 */
+    /*这时候lua栈 变为 表 top*/
     lua_settable(lua,-3);
 
+    //注册redis.pcall函数
     /* redis.pcall */
     lua_pushstring(lua,"pcall");
     lua_pushcfunction(lua,luaRedisPCallCommand);
@@ -996,24 +1015,49 @@ void scriptingInit(int setup) {
     lua_settable(lua,-3);
 
     /* redis.debug */
+    /* 获取L->top -3 处的 表  L->top -2 的key也就是call L->top -1的value也就是函数*/
+    /* table[key] = value  -- 等价于这个赋值操作 */
+    /*然后让L->top -2 */
+    /*这时候lua栈 变为 表 top*/
     lua_pushstring(lua,"debug");
     lua_pushcfunction(lua,luaRedisDebugCommand);
     lua_settable(lua,-3);
 
+     /*这时候lua栈是 表 top*/
     /* Finally set the table as 'redis' global var. */
+    /*这时候 L->top -1 处其实就是表 把表放入global表，key为redis */
+    /*这时候 global里就是redis这个key了*/
+    /*然后L->top -- */
     lua_setglobal(lua,"redis");
 
+   /*这时候lua栈是 表*/
+
     /* Replace math.random and math.randomseed with our implementations. */
+
+    /*把全局表的math表 放入当前L->top处 top++*/
+    /*这时候 top处就是math表了*/
     lua_getglobal(lua,"math");
+
+
+
 
     lua_pushstring(lua,"random");
     lua_pushcfunction(lua,redis_math_random);
+    //这时候就是替换math表的random key的 值了
     lua_settable(lua,-3);
 
     lua_pushstring(lua,"randomseed");
     lua_pushcfunction(lua,redis_math_randomseed);
+
+    //设置完后 top在 表的上方
     lua_settable(lua,-3);
 
+    //重新设置了math表
+    /*
+      为什么要重新设置下
+
+      L->top--;    pop value 
+    */
     lua_setglobal(lua,"math");
 
     /* Add a helper function that we use to sort the multi bulk output of non
@@ -1070,6 +1114,7 @@ void scriptingInit(int setup) {
  * This function is used in order to reset the scripting environment. */
 void scriptingRelease(void) {
     dictRelease(server.lua_scripts);
+    /*调用lua内部方法*/
     lua_close(server.lua);
 }
 
@@ -1234,6 +1279,7 @@ void evalGenericCommand(client *c, int evalsha) {
     server.lua_multi_emitted = 0;
     server.lua_repl = PROPAGATE_AOF|PROPAGATE_REPL;
 
+    /* 第三个参数 获取key的数量 */
     /* Get the number of arguments that are keys */
     if (getLongLongFromObjectOrReply(c,c->argv[2],&numkeys,NULL) != C_OK)
         return;
@@ -1251,8 +1297,10 @@ void evalGenericCommand(client *c, int evalsha) {
     funcname[1] = '_';
     if (!evalsha) {
         /* Hash the code if this is an EVAL call */
+        /* 如果是eval 调用就对码做hash */
         sha1hex(funcname+2,c->argv[1]->ptr,sdslen(c->argv[1]->ptr));
     } else {
+        /*如果是evalsha 那么已经有了 第一个参数就是*/
         /* We already have the SHA if it is a EVALSHA */
         int j;
         char *sha = c->argv[1]->ptr;
@@ -1270,7 +1318,14 @@ void evalGenericCommand(client *c, int evalsha) {
     lua_getglobal(lua, "__redis__err__handler");
 
     /* Try to lookup the Lua function */
+    /*
+      从 Lua 全局表 _G 中查找名为 funcname 的变量
+        将找到的值压入栈顶
+        如果变量不存在，则压入 nil
+     */
     lua_getglobal(lua, funcname);
+
+
     if (lua_isnil(lua,-1)) {
         lua_pop(lua,1); /* remove the nil from the stack */
         /* Function not defined... let's define it if we have the
@@ -1307,8 +1362,8 @@ void evalGenericCommand(client *c, int evalsha) {
      *
      * If we are debugging, we set instead a "line" hook so that the
      * debugger is call-back at every line executed by the script. */
-    server.lua_caller = c;
-    server.lua_time_start = mstime();
+    server.lua_caller = c; //调用调用lua脚本的客户端
+    server.lua_time_start = mstime(); //当前开始时间
     server.lua_kill = 0;
     if (server.lua_time_limit > 0 && server.masterhost == NULL &&
         ldb.active == 0)
@@ -1320,6 +1375,28 @@ void evalGenericCommand(client *c, int evalsha) {
         delhook = 1;
     }
 
+    /*
+        ‌L‌: Lua 状态机指针
+        ‌nargs‌: 传递给函数的参数数量
+        ‌nresults‌: 期望的返回值数量（LUA_MULTRET 表示接受任意数量返回值）
+        ‌errfunc‌: 错误处理函数在栈中的位置（0 表示不使用）
+        核心特点
+        ‌保护模式执行‌：
+
+        捕获执行过程中的错误
+        防止错误直接导致程序崩溃
+        ‌执行流程‌：
+
+        从栈顶获取函数和参数
+        执行函数
+        将结果压入栈中
+    
+    
+    */
+
+    /*
+     此时，无论这个脚本以前从未见过，还是已经定义过，我们都可以调用它。我们有0个参数，期望有一个返回值
+    */
     /* At this point whether this script was never seen before or if it was
      * already defined, we can call it. We have zero arguments and expect
      * a single return value. */
@@ -1364,6 +1441,9 @@ void evalGenericCommand(client *c, int evalsha) {
         lua_pop(lua,1); /* Remove the error handler. */
     }
 
+    /*
+       
+    */
     /* If we are using single commands replication, emit EXEC if there
      * was at least a write. */
     if (server.lua_replicate_commands) {
@@ -1412,6 +1492,7 @@ void evalCommand(client *c) {
 }
 
 void evalShaCommand(client *c) {
+    //如果第一个参数长度不是40
     if (sdslen(c->argv[1]->ptr) != 40) {
         /* We know that a match is not possible if the provided SHA is
          * not the right length. So we return an error ASAP, this way

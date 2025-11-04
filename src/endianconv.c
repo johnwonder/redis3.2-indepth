@@ -56,12 +56,26 @@ void memrev16(void *p) {
 
 /* Toggle the 32 bit unsigned integer pointed by *p from little endian to
  * big endian */
+/*
+  将*p所指向的32位无符号整数从小端进制切换到大端进制
+*/
 void memrev32(void *p) {
     unsigned char *x = p, t;
 
+    /*如果当前机器是大端，那么 x[0] 取的是高位的 ，那这里应该是从大端切换成小端 */
+
+    /* 然后取的时候，比如 intrev32ifbe(ZIPLIST_BYTES(zl)) */
+
+    /*
+     ZIPLIST_BYTES(zl) 先获取的 小端数据
+
+     然后再切换成大端
+    
+    */
+
     t = x[0];
-    x[0] = x[3]; //大的放到低地址
-    x[3] = t; //小的变成大的
+    x[0] = x[3];  
+    x[3] = t;  
     t = x[1];
     x[1] = x[2];
     x[2] = t;

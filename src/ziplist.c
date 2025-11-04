@@ -190,6 +190,8 @@ Replace ziplist with listpack in Hash (#8887), List (#9366), Zset (#9740)
 /*移动到列表最后 ZIP_END之前*/
 #define ZIPLIST_ENTRY_END(zl)   ((zl)+intrev32ifbe(ZIPLIST_BYTES(zl))-1)
 
+/*  [zlbytes][zltail][zllen][field1][value1][field2][value2]...[zlend]  */
+
 /*我们知道正增量只能是1，因为一次只能推送一个条目 */
 /* We know a positive increment can only be 1 because entries can only be
  * pushed one at a time. */
@@ -532,6 +534,16 @@ unsigned char *ziplistNew(void) {
     unsigned int bytes = ZIPLIST_HEADER_SIZE+1;
     unsigned char *zl = zmalloc(bytes);
     //压缩列表的总字节数
+
+    /*
+     http://zhangtielei.com/posts/blog-redis-ziplist.html
+     上面的定义中还值得注意的一点是：<zlbytes>, <zltail>, <zllen>既然占据多个字节，
+     那么在存储的时候就有大端（big endian）和小端（little endian）的区别。
+     ziplist采取的是小端模式来存储，这在下面我们介绍具体例子的时候还会再详细解释。
+    
+     我个人理解这边 要大小端转换是 因为要统一存储为小端，
+     多个字节涉及到大小端转换
+    */
     ZIPLIST_BYTES(zl) = intrev32ifbe(bytes);
     
     //给zltail赋值 存储了tail的偏移量，
@@ -1253,6 +1265,7 @@ unsigned int ziplistLen(unsigned char *zl) {
 
 /* Return ziplist blob size in bytes. */
 size_t ziplistBlobLen(unsigned char *zl) {
+    //获取int32后 再大小端转换
     return intrev32ifbe(ZIPLIST_BYTES(zl));
 }
 

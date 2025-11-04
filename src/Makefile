@@ -2,7 +2,9 @@
 # Copyright (C) 2009 Salvatore Sanfilippo <antirez at gmail dot com>
 # This file is released under the BSD license, see the COPYING file
 #
-# Makefile使用Redis所需的内容以及传递的标准CFLAGS和LDFLAGS组成最终的FINAL_CFLAGS和FINAL_LDFLAGS
+# Makefile使用Redis所需的内容以及传递的标准CFLAGS和LDFLAGS组成最终的FINAL_CFLAGS和FINAL_LDFLAGS、
+# 然而，当构建依赖时（Jemalloc, Lua, Hiredis，…）CFLAGS和LDFLAGS被传播到依赖项，
+# 所以要传递仅在编译/链接Redis本身时使用的标志，使用REDIS_CFLAGS和REDIS_LDFLAGS代替（这是‘make gcov’的情况）
 # The Makefile composes the final FINAL_CFLAGS and FINAL_LDFLAGS using
 # what is needed for Redis plus the standard CFLAGS and LDFLAGS passed.
 # However when building the dependencies (Jemalloc, Lua, Hiredis, ...)
@@ -13,6 +15,9 @@
 # Dependencies are stored in the Makefile.dep file. To rebuild this file
 # Just use 'make dep', but this is only needed by developers.
 
+# $(shell ...) 是Makefile的内置函数，用于执行shell命令
+# sh -c './mkreleasehdr.sh' 表示调用shell执行当前目录下的mkreleasehdr.sh脚本
+# := 定义时立即展开 值固定
 release_hdr := $(shell sh -c './mkreleasehdr.sh')
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 #If you’d like a variable to be set to a value only if it’s not already set, 
@@ -21,6 +26,7 @@ OPTIMIZATION?=-O2
 DEPENDENCY_TARGETS=hiredis linenoise lua geohash-int
 
 # Default settings
+# 默认设置
 STD=-std=c99 -pedantic -DREDIS_STATIC=''
 WARN=-Wall -W
 OPT=$(OPTIMIZATION)
@@ -29,7 +35,7 @@ PREFIX?=/usr/local
 INSTALL_BIN=$(PREFIX)/bin
 INSTALL=install
 
-# Default allocator
+# Default allocator 
 ifeq ($(uname_S),Linux)
 	MALLOC=jemalloc
 else
@@ -126,9 +132,9 @@ MAKECOLOR="\033[32;1m"
 ENDCOLOR="\033[0m"
 
 ifndef V
-#$@ 是一个自动变量，它代表当前规则中的目标文件（target）
-#整行命令的效果是：在编译过程中，以蓝色打印“CC”，紧接着以黄色打印正在编译的文件名（$@的值），然后将这条信息发送到标准错误输出。
-#这样做的好处是，即使make的输出被重定向或忽略，编译信息也能以醒目的颜色显示在终端上，方便开发者快速定位。
+# $@ 是一个自动变量，它代表当前规则中的目标文件（target）
+# 整行命令的效果是：在编译过程中，以蓝色打印“CC”，紧接着以黄色打印正在编译的文件名（$@的值），然后将这条信息发送到标准错误输出。
+# 这样做的好处是，即使make的输出被重定向或忽略，编译信息也能以醒目的颜色显示在终端上，方便开发者快速定位。
 
 QUIET_CC = @printf '    %b %b\n' $(CCCOLOR)CC$(ENDCOLOR) $(SRCCOLOR)$@$(ENDCOLOR) 1>&2;
 QUIET_LINK = @printf '    %b %b\n' $(LINKCOLOR)LINK$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR) 1>&2;
@@ -198,6 +204,8 @@ persist-settings: distclean
 # 以点开头的目标通常被用作伪目标，但这并不是强制性的。你也可以使用不以点开头的名称来定义伪目标，
 # 并通过 .PHONY 声明它们。不过，使用以点开头的名称是一种约定俗成的做法，可以帮助区分伪目标和实际文件目标。
 # Prerequisites target
+
+# @touch $@ 静默更新目标文件的时间戳（若文件不存在则创建）
 .make-prerequisites:
 	@touch $@
 
@@ -236,7 +244,7 @@ $(REDIS_CHECK_RDB_NAME): $(REDIS_SERVER_NAME)
 $(REDIS_CLI_NAME): $(REDIS_CLI_OBJ)
 	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o $(FINAL_LIBS)
 
-# redis-benchmark
+# redis-benchmark 依赖  ae.o anet.o redis-benchmark.o adlist.o zmalloc.o redis-benchmark.o
 $(REDIS_BENCHMARK_NAME): $(REDIS_BENCHMARK_OBJ)
 	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a $(FINAL_LIBS)
 

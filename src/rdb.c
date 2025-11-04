@@ -868,7 +868,7 @@ werr: /* Write error. */
 /* Save the DB on disk. Return C_ERR on error, C_OK on success. */
 int rdbSave(char *filename) {
     char tmpfile[256];
-    char cwd[MAXPATHLEN]; /* Current working dir path for error messages. */
+    char cwd[MAXPATHLEN]; /*当前错误消息的工作目录 Current working dir path for error messages. */
     FILE *fp;
     rio rdb;
     int error = 0;

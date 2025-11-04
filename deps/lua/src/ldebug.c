@@ -28,6 +28,10 @@
 #include "ltm.h"
 #include "lvm.h"
 
+/*
+ 惊喜在等着你。抽象解释用于查找回溯的对象名称。也可以进行字节码验证。
+*/
+
 
 
 static const char *getfuncname (lua_State *L, CallInfo *ci, const char **name);

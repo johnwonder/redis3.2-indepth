@@ -38,7 +38,7 @@
 ** (any reallocation to an equal or smaller size cannot fail!)
 */
 
-
+// 内存管理
 
 #define MINSIZEARRAY	4
 

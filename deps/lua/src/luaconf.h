@@ -591,6 +591,9 @@ union luai_Cast { double l_d; long l_l; };
 ** instance, if your system supports long doubles and they must be
 ** aligned in 16-byte boundaries, then you should add long double in the
 ** union.) Probably you do not need to change this.
+LUAI_USER_ALIGNMENT_T是一个需要最大对齐的类型。
+如果您的系统需要大于两倍的对齐，请更改它。（例如，如果您的系统支持长双精度并且它们必须以16字节的边界对齐，
+那么您应该在联合中添加长双精度。）也许您不需要更改它
 */
 #define LUAI_USER_ALIGNMENT_T	union { double u; void *s; long l; }
 

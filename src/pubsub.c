@@ -209,6 +209,8 @@ int pubsubUnsubscribeAllChannels(client *c, int notify) {
         //退订当前channel
         count += pubsubUnsubscribeChannel(c,channel,notify);
     }
+
+    /*没订阅什么 还是要回复给客户端*/
     /* We were subscribed to nothing? Still reply to the client. */
     if (notify && count == 0) {
         addReply(c,shared.mbulkhdr[3]);
@@ -256,6 +258,7 @@ int pubsubPublishMessage(robj *channel, robj *message) {
     /* Send to clients listening for that channel */
     de = dictFind(server.pubsub_channels,channel);
     if (de) {
+        //字典的value是 客户端链表
         list *list = dictGetVal(de);
         listNode *ln;
         listIter li;

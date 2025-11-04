@@ -409,8 +409,14 @@ void listRotate(list *list) {
 
     //原来尾部节点变成头节点
     /* Move it as head */
+
+    /*原来头部节点的前节点指向 tail*/
     list->head->prev = tail;
     tail->prev = NULL;
+
+    //原来tail的next指向 原来的头部节点
     tail->next = list->head;
+
+    //头部指向原来尾部的节点
     list->head = tail;
 }

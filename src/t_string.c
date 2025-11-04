@@ -82,6 +82,8 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     }
 
     //如果选项为不存在 键不能存在
+    //如果选项为存在 但是键不存在 
+    //那么就直接返回空
     if ((flags & OBJ_SET_NX && lookupKeyWrite(c->db,key) != NULL) ||
         (flags & OBJ_SET_XX && lookupKeyWrite(c->db,key) == NULL))
     {
@@ -94,11 +96,16 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     //服务现在脏了 之后 可以 传播给 aof 或者rdb持久化了
     server.dirty++;
     //设置键过期
-    if (expire) setExpire(c->db,key,mstime()+milliseconds);
     
+    long long now = mstime();
+    serverLog(LL_NOTICE,"key %s now: %lld expire: %lld .",key,now,milliseconds);
+    if (expire) setExpire(c->db,key,now+milliseconds);
+    
+    //发送给订阅__keyspace@  频道的客户端
     /* https://blog.csdn.net/qq_41453285/article/details/103290903 */
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
 
+    //设置了缓存过期时间 发送通知给订阅者
     if (expire) notifyKeyspaceEvent(NOTIFY_GENERIC,
         "expire",key,c->db->id);
     addReply(c, ok_reply ? ok_reply : shared.ok);
@@ -118,10 +125,13 @@ void setCommand(client *c) {
     //从第四个参数开始
     for (j = 3; j < c->argc; j++) {
         char *a = c->argv[j]->ptr;
+
+        /*直接取当前参数的下一个参数*/
         robj *next = (j == c->argc-1) ? NULL : c->argv[j+1];
 
         //nx 选项
         //Only set the key if it does not already exist
+        //如果已经设置了XX 那么就忽略这个标记了
         if ((a[0] == 'n' || a[0] == 'N') &&
             (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
             !(flags & OBJ_SET_XX))
@@ -183,6 +193,7 @@ int getGenericCommand(client *c) {
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL)
         return C_OK;
 
+    //如果对象类型不是string那 就返回类型错误
     if (o->type != OBJ_STRING) {
         addReply(c,shared.wrongtypeerr);
         return C_ERR;
@@ -389,6 +400,7 @@ void incrDecrCommand(client *c, long long incr) {
         new = o;
         o->ptr = (void*)((long)value);
     } else {
+        //从long long 创建新的string对象
         new = createStringObjectFromLongLong(value);
         if (o) {
             //覆盖原来的

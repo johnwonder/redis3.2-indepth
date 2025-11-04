@@ -133,6 +133,7 @@ int geohashEncode(const GeoHashRange *long_range, const GeoHashRange *lat_range,
     hash->bits = 0;
     hash->step = step;
 
+    //判断经纬度是否超过
     if (latitude < lat_range->min || latitude > lat_range->max ||
         longitude < long_range->min || longitude > long_range->max) {
         return 0;
@@ -144,6 +145,7 @@ int geohashEncode(const GeoHashRange *long_range, const GeoHashRange *lat_range,
         (longitude - long_range->min) / (long_range->max - long_range->min);
 
     /* convert to fixed point based on the step size */
+    /*根据步长转换为固定点*/
     lat_offset *= (1 << step);
     long_offset *= (1 << step);
     hash->bits = interleave64(lat_offset, long_offset);
@@ -152,7 +154,10 @@ int geohashEncode(const GeoHashRange *long_range, const GeoHashRange *lat_range,
 
 int geohashEncodeType(double longitude, double latitude, uint8_t step, GeoHashBits *hash) {
     GeoHashRange r[2] = { { 0 } };
+
     geohashGetCoordRange(&r[0], &r[1]);
+    
+    //https://baijiahao.baidu.com/s?id=1783545469025266750&wfr=spider&for=pc
     return geohashEncode(&r[0], &r[1], longitude, latitude, step, hash);
 }
 

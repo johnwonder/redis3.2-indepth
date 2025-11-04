@@ -87,6 +87,8 @@ int clusterBumpConfigEpochWithoutConsensus(void);
  * sake of locking if it does not already exist), C_ERR is returned.
  * If the configuration was loaded from the file, C_OK is returned. */
 int clusterLoadConfig(char *filename) {
+
+    //打开文件
     FILE *fp = fopen(filename,"r");
     struct stat sb;
     char *line;
@@ -125,11 +127,13 @@ int clusterLoadConfig(char *filename) {
         clusterNode *n, *master;
         char *p, *s;
 
+        /*跳过空格行，有可能是用户自己编辑的时候，或者写的进程在truncate()调用之前停止了。 */
         /* Skip blank lines, they can be created either by users manually
          * editing nodes.conf or by the config writing process if stopped
          * before the truncate() call. */
         if (line[0] == '\n' || line[0] == '\0') continue;
 
+        /*分隔行 参数化*/
         /* Split the line into arguments for processing. */
         argv = sdssplitargs(line,&argc);
         if (argv == NULL) goto fmterr;
@@ -350,9 +354,14 @@ void clusterSaveConfigOrDie(int do_fsync) {
     }
 }
 
+/**
+ * 使用flock（）锁定集群配置，并泄漏用于获取锁的文件描述符，以便永远锁定文件
+ * 
+ */
 /* Lock the cluster config using flock(), and leaks the file descritor used to
  * acquire the lock so that the file will be locked forever.
  *
+ * 这是有效的，因为我们总是用一个新版本更新nodes.conf，重新打开文件，并就地写入（稍后使用ftruncate（）调整长度）
  * This works because we always update nodes.conf with a new version
  * in-place, reopening the file, and writing to it in place (later adjusting
  * the length with ftruncate()).
@@ -365,6 +374,8 @@ int clusterLockConfig(char *filename) {
  * which will release _all_ locks anyway
  */
 #if !defined(__sun)
+
+    //锁定时需要打开这个文件
     /* To lock it, we need to open the file in a way it is created if
      * it does not exist, otherwise there is a race condition with other
      * processes. */
@@ -375,7 +386,7 @@ int clusterLockConfig(char *filename) {
             filename, strerror(errno));
         return C_ERR;
     }
-
+    //该函数支持共享锁（LOCK_SH）、互斥锁（LOCK_EX）、解锁（LOCK_UN）及非阻塞模式（LOCK_NB）
     if (flock(fd,LOCK_EX|LOCK_NB) == -1) {
         if (errno == EWOULDBLOCK) {
             serverLog(LL_WARNING,
@@ -397,27 +408,182 @@ int clusterLockConfig(char *filename) {
     return C_OK;
 }
 
+/*
+  集群的作用：
+  1.分散了单台服务器的访问压力，实现负载均衡
+  2.分散了单台服务器的存储压力，实现可扩展性
+  3.降低单台服务器宕机带来的业务灾难（只影响一部分）
+
+  数据存储设计
+  1.通过算法设计，计算出每一个key应该保存的位置
+  2.将所有的存储空间计划切割成16384份槽，每台主机保存一部分，每分代表的是一个存储空间，
+    不是一个key的保存空间
+  3.将key按照计算出的结果放到对应的存储空间
+  4.查询的时候根据算法找出对应的存储空间里的记录
+
+  key -> crc16(key) -> 2323xxx121 -> %16384 -> 存到指定槽
+
+  各个数据库实例在集群中想换通信，保存各个库中槽的编号数据，一次命中直接返回，
+  一次未命中，返回key存储的具体位置
+
+  去中心化
+
+
+*/
+
+/*
+   整个集群其实主要是做两件事：
+   1.数据分片：
+     a. Redis Cluster将数据按照键哈希分配到16384个哈希槽slot上，Redis Cluster架构中是没有Proxy层的，
+        数据操作不能跨多个节点，也不存在merge层。
+     b. Redis Cluster中不同的主节点只会负责其中一部分哈希槽，即每个主节点负责一部分数据，全部主节点
+        加起来就是全量数据。集群需要所有槽都有负责的主节点才能工作，否则默认会返回cluster down错误（
+        也可以通过配置项来控制，让集群只提供部分有主的slot的读写服务）
+     
+   2. 故障恢复：
+      a. Redis Cluster中直接提供服务的节点是主节点master.
+      b. 每个master 节点可以提供多个副本replica,也就是从节点。
+      c. 当master故障的时候，可以从多个副本中选择一个提升为主节点进行故障转移和恢复。
+
+ 提升可用性：
+  水平扩展的能力：由于哈希槽的分配，在增加节点的时候只需要将别的节点处理的一部分哈希槽
+                重新分配给新增节点，理论上极限16384个槽可以分给16384个节点，每个节点
+                负责一个槽，不过官方建议主节点数量不要超过1000个，因为redis集群是去
+                中心化的使用的是gossip协议，当主节点数量很多时，gossip协议的开销
+                会很重。哈希槽可以看做是机器节点和用户数据之间的一个抽象层。
+  故障恢复：在sentinel模式里哨兵可以自动进行故障转移，在cluster中也是同样有提供自动的故障转移。
+
+
+  损失部分一致性：
+   1.redis主从复制时异步的，所以不是强一致性模型，是最终一致性。
+   2.故障转移期间可能会有短暂的数据丢失，因为主从复制时异步的。
+   3.在网络分区出现的情况下，数据也可能会丢失或者不一致。
+
+   虽然有个WAIT命令可以实现同步复制，不过对于redis cluster来说，我们过分关注
+   强一致性的话反而有点浪费它。
+
+   故障恢复问题：
+   集群中为了提高可用性，同样也是有主从结构，每个主节点后面都可以挂载一定数量的从节点，如果主节点宕机了，
+   会进行故障转移从这些从节点中选举一个出来当做主节点。如果某个主节点和它底下的从节点全部宕机，默认情况下
+   集群会处于不可用的状态，因为有一部分哈希槽无法提供服务，不过这个默认行为是可以通过参数控制的。从节点
+   选举成为主节点的时候，需要获取其他半数以上的主节点的投票。
+ 
+*/
+
+/*
+  默认情况一个集群需要正常分配好所有槽才能工作，如果要允许部分槽失败的话有个配置项
+  cluster-require-full-coverage 来控制，
+  使用 addslots 或者addslotsrange命令来分配槽，后者是7.0新加的命令。
+  之后重新看cluster nodes/cluster info输出就能看到我们把槽都分配好了，
+
+*/
+
+/*
+  redis cluster 并没有使用一致性hash,而是用了 hash slots哈希槽，哈希槽相较于一致性hash来说
+  会更容易实现。默认cluster会分为16384个哈希槽，每个key通过crc16对16384取模来决定放到哪个槽上，
+  集群中的每个主节点会分配负责一部分槽，也就是进行了数据分片。每个节点只持有部分数据，全部主节点数据
+  加起来就是完整的数据。数据迁移实际上也就是哈希槽的迁移，哈希槽的迁移一般会比一致性哈希中的数据迁移
+  更加容易。
+
+  集群中的每个主节点只提供一部分数据的服务，将完整数据分散到多个主节点上，数据分片的形式可以提升
+  整个集群的性能。集群模式下对单键命令的执行其实和单机没有啥区别，客户端发送命令，redis cluster计算命令
+  里的键是数据哪个槽位，然后去对应槽对应节点获取数据返回。（客户端一般随便连接哪一个节点都可以，
+  能获取完整的集群拓扑信息（以对方的角度）
+
+
+  不过对于多键命令，例如求集合的交集啥的，多个键是可能被分到不同的槽上的，如果键有被分到不同的
+  槽上，这样的命令是会报错的，因为redis cluster不支持跨节点的操作，也没有说有提供一个merge层
+  代理，默认情况下检测到命令中的多键分配到不同的槽上时就会返回这个错误。
+
+  这种情况下可以使用hash tags,将键分配到同一个哈希槽（节点）上，例如下面的{t},规定用{}包裹
+  hash_tags即可把键分配到一个哈希槽上。服务端实现上只会对{}里的内容进行哈希，所以如果hash tags
+  一样的话，键理所当然会被分配到同一个哈希槽中，那自然会在同一个节点。比如下面的key1{t}和key2{t}
+  和t 都会被分配到同一个槽去，他们实际上都只对t进行了哈希计算。
+
+  也可以通过cluster keyslot命令来查看键归属于哪个槽，从下面可以看到这些有着一样hash tag的键实际上
+  都会被哈希到同一个slot上，在后面看到哈希函数也能看到是专门对{}里的内容做的哈希。
+
+  另外SELECT命令在集群中，除了SELECT 0外都是不允许的，因为redis cluster 将所有键都保存在0号数据库中，
+  不支持像单实例那样的多数据库，官方其实对于集群的看法也是一直在主推单数据库集群。
+
+  我觉得可以直接禁用SELECT命令，而不是说经过参数校验，允许SELECT 0这样（不过select 0 应该还是需要的，
+  因为例如键迁移，我们可能会追加select 0 命令来确保数据的正确性，跟在主从复制或者AOF等是一样的。
+*/
+
+/*
+  关于为啥没使用一致性哈希，可以看madolson的评论，一致性哈希算法最大的好处就是，
+  在集群调整大小的时候，可以最小化键的移动（只需要对要搬迁的节点做数据搬迁，
+  键会被重哈希到别的节点上，但是对于其他节点来说不需要做数据搬迁）。
+
+  首先，拥有一致的哈希算法并不能消除对主节点的需求，我们仍然需要一个节点作为槽的权威写入者。
+  然后固定大小的槽有一些实际性的好处，例如：
+  1.维护很简单（代码简单，原理简单，实现简单）
+  2.减少rehash期间 涉及的参与者数量
+  3.客户端库例如redis-py这些，使用一致性哈希也会更复杂，因为哦我们希望客户端知道哪个master负责哪些slots,
+    以便客户端可以直接往master发送请求。
+ 
+*/
+
+/*
+  redis cluster通过分片的方式来保存数据库中的键值对：一个集群中，每个键都通过哈希函数映射到一个槽位，
+  整个集群共分为16384个槽位，集群中每个主节点负责其中的一部分槽位。当16384个槽位都有节点负责时，
+  集群就处于上线状态；相反，如果数据库中有任何一个槽没有得到处理，那么集群处于下线状态（当然可以通过配置
+  来允许subset提供服务）。
+
+  所谓键的分配，实际上就是指槽位在集群节点中的分配；所谓键的迁移，实际上指槽位在集群节点间的迁移。
+*/
+
+/*
+  集群总线
+
+  redis cluster每个节点会有两个端口，一个就是常规的6379,用客户端连接提供服务的。另一个是6379+10000
+  ,7.0版本后可以通过配置知道cluster-port,这个接口是用于集群节点之间通信的，叫做cluster bus port
+  集群总线端口，总线端口是使用二进制进行通信（gossip协议） 节点通过bus端口传递信息，例如穿日PING,
+  PONG,MEET等包。
+
+  gossip是去中心化最终一致性的一种分布式服务数据同步算法。理解为每个人都会说流言蜚语，每个节点会向它
+  知道的节点广播一些数据包，例如PING包啥的，对方会回复PONG包，双方都会带上它知道的节点信息，就这样相互交换信息，
+  最终整个集群会达到最终一致性。就跟【六度分隔理论】类似，最多通过6个人你就能认识任何一个陌生人。
+
+*/
+
+
 void clusterInit(void) {
     int saveconf = 0;
 
+    /* 集群状态 分配空间 */
     server.cluster = zmalloc(sizeof(clusterState));
+
+
     server.cluster->myself = NULL;
     server.cluster->currentEpoch = 0;
     server.cluster->state = CLUSTER_FAIL;
     server.cluster->size = 1;
     server.cluster->todo_before_sleep = 0;
+
+    /* 集群节点 字典 */
     server.cluster->nodes = dictCreate(&clusterNodesDictType,NULL);
     server.cluster->nodes_black_list =
         dictCreate(&clusterNodesBlackListDictType,NULL);
+
+    /*
+      
+    */
     server.cluster->failover_auth_time = 0;
     server.cluster->failover_auth_count = 0;
     server.cluster->failover_auth_rank = 0;
     server.cluster->failover_auth_epoch = 0;
     server.cluster->cant_failover_reason = CLUSTER_CANT_FAILOVER_NONE;
     server.cluster->lastVoteEpoch = 0;
+
+
     server.cluster->stats_bus_messages_sent = 0;
     server.cluster->stats_bus_messages_received = 0;
+
+    
     memset(server.cluster->slots,0, sizeof(server.cluster->slots));
+
+
     clusterCloseAllSlots();
 
     /* Lock the cluster config file to make sure every node uses
@@ -427,15 +593,23 @@ void clusterInit(void) {
 
     /* Load or create a new nodes configuration. */
     if (clusterLoadConfig(server.cluster_configfile) == C_ERR) {
+
+        /*
+          没有找到配置。用随机名字
+        */
         /* No configuration found. We will just use the random name provided
          * by the createClusterNode() function. */
         myself = server.cluster->myself =
             createClusterNode(NULL,CLUSTER_NODE_MYSELF|CLUSTER_NODE_MASTER);
         serverLog(LL_NOTICE,"No cluster configuration found, I'm %.40s",
             myself->name);
+
+        //把自己添加到nodes的hash表里
         clusterAddNode(myself);
         saveconf = 1;
     }
+
+
     if (saveconf) clusterSaveConfigOrDie(1);
 
     /* We need a listening TCP port for our cluster messaging needs. */
@@ -473,6 +647,7 @@ void clusterInit(void) {
     /* The slots -> keys map is a sorted set. Init it. */
     server.cluster->slots_to_keys = zslCreate();
 
+    /* 设置myself->port为 监听端口，我们只需要通过MEET消息发现IP地址 */
     /* Set myself->port to my listening port, we'll just need to discover
      * the IP address via MEET messages. */
     myself->port = server.port;
@@ -596,6 +771,8 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                     "Error accepting cluster node: %s", server.neterr);
             return;
         }
+
+        //设置非阻塞
         anetNonBlock(NULL,cfd);
         anetEnableTcpNoDelay(NULL,cfd);
 
@@ -607,7 +784,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
          * which node is, but the right node is references once we know the
          * node identity. */
         link = createClusterLink(NULL);
-        link->fd = cfd;
+        link->fd = cfd; //客户端连接
         aeCreateFileEvent(server.el,cfd,AE_READABLE,clusterReadHandler,link);
     }
 }
@@ -1569,6 +1746,7 @@ int clusterProcessPacket(clusterLink *link) {
     if (type == CLUSTERMSG_TYPE_PING || type == CLUSTERMSG_TYPE_PONG ||
         type == CLUSTERMSG_TYPE_MEET)
     {
+        //meet消息
         uint16_t count = ntohs(hdr->count);
         uint32_t explen; /* expected length of this packet */
 

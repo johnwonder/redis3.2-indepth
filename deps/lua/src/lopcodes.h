@@ -9,6 +9,71 @@
 
 #include "llimits.h"
 
+ /*
+    一般来说，一个字节码指令是由1字节的操作码(opcode)和若干个可选操作
+    参数组成，
+
+    Lua虚拟机中的寄存器实际上用的是栈上的空间，因此A域的值指代的就是
+    栈上的某个位置，在这个指令里被当做寄存器使用了。
+    A域栈8bit,它能代表的最大值是256，实际上限制了栈的有效空间
+
+    接着就是B域和C域，这两个域主要存放参数信息。
+    它们各占9bit,能表示的最大范围是2的9次方，也就是512，
+    B域和C域具体代表什么意思实际上是由opcode决定的。
+
+    比如操作对象如果是字符串，字符串本身的内容是没法编入这么短的域中的；
+    因此需要将不同的信息存放到不同的位置，再将他们的索引信息找出编入指令中。
+    Lua的绝大多数指令，采用的是iABC模式。
+
+    iABx模式 没有B和C域，而只有一个Bx域，这个域占18bit.使用这种模式的指令很少，
+    只有OP_LOADK,OP_LOADKX和OP_CLOSURE三各指令。Bx所代表的值是无符号的。
+
+    iAsBx的模式和iABx⼤体相当，只是⾼18bit的值是有符号
+的，可以表示负数。但是sBx域并没有采取⼆进制补码的⽅式，⽽是采⽤⼀个bias值作为0值分
+界。因为sBx域占18bit，因此它能表示的最⼤⽆符号整数值是262143（218-1）。那么它的零
+值则是131071（262143>>1）。当需要它表示-1时，那么sBx域的值为131070（131071
+1）。采⽤iAsBx模式的指令⼀般和跳转有关系，⽐如OP_JMP、OP_FORLOOP、
+OP_FORPREP和OP_TFORLOOP指令等。
+ */
+
+/*
+
+ 字节码指令格式和操作码定义。容易实现
+  R(A)
+  Register A (specified in instruction field A)
+  R(B)
+  Register B (specified in instruction field B)
+  R(C)
+  Register C (specified in instruction field C)
+  PC
+  Program Counter
+  Kst(n)
+  Element n in the constant list
+  Upvalue[n]
+  Name of upvalue with index n
+  Gbl[sym]
+  Global variable indexed by symbol sym
+  RK(B)
+  Register B or a constant index
+  RK(C)
+  Register C or a constant index
+  sBx
+  Signed displacement (in field sBx) for all kinds of jumps
+
+  Lua bytecode instructions are 32-bits in size. 
+  All instructions have an opcode in the first 6 bits. Instructions can have the following fields:
+  Lua字节码指令的大小为32位。所有指令的前6位都有一个操作码。指令可以有以下字段
+
+  'A' : 8 bits
+  'B' : 9 bits
+  'C' : 9 bits
+  'Ax' : 26 bits ('A', 'B', and 'C' together)
+  'Bx' : 18 bits ('B' and 'C' together)
+  'sBx' : signed Bx
+
+  A signed argument is represented in excess K; that is, the number value is the unsigned value minus K. K is exactly the maximum value for that argument (so that -max is represented by 0, and +max is represented by 2*max), 
+  which is half the maximum for the corresponding unsigned argument.
+*/
 
 /*===========================================================================
   We assume that instructions are unsigned numbers.
@@ -28,15 +93,17 @@
 ===========================================================================*/
 
 
-enum OpMode {iABC, iABx, iAsBx};  /* basic instruction format */
+enum OpMode {iABC, iABx, iAsBx};  /*三种指令格式 basic instruction format */
 
 
 /*
 ** size and position of opcode arguments.
+
+   定义了在一个指令中每个参数的对应大小和位置
 */
 #define SIZE_C		9
 #define SIZE_B		9
-#define SIZE_Bx		(SIZE_C + SIZE_B)
+#define SIZE_Bx		(SIZE_C + SIZE_B) //18
 #define SIZE_A		8
 
 #define SIZE_OP		6
@@ -118,6 +185,7 @@ enum OpMode {iABC, iABx, iAsBx};  /* basic instruction format */
 /* this bit 1 means constant (0 means register) */
 #define BITRK		(1 << (SIZE_B - 1))
 
+// 判断这个数据的第8位是不是1，是则认为应该从K数组中获取数据，否则就从函数栈寄存器中获取数据。
 /* test whether value is a constant */
 #define ISK(x)		((x) & BITRK)
 
@@ -145,17 +213,97 @@ enum OpMode {iABC, iABx, iAsBx};  /* basic instruction format */
 
 /*
 ** grep "ORDER OP" if you change these enums
+   如果更改这些枚举，则执行“ORDER OP”
+
+   OP_MOVE 从R(B)中取数据赋值给R(A)
+   OP_LOADK 从Kst(Bx)常量中 取数据赋值给R(A) //比如local name = "zhangsan"
+   OP_LOADBOOL 取B参数的布尔值赋值给R(A),如果满足C为真的条件，则将pc指针递增，即执行下一条指令
+
+   OP_LOADNIL  从寄存器R(A) 到R(B) 的数据赋值为nil
+   OP_GETUPVAL 从UpValue数组中取值赋值给R(A)
+   OP_GETGLOBAL 以Kst[Bx] 作为全局符号表的索引，取出值后赋值给R(A)
+   OP_GETTABLE 以RK(C)作为表索引，以R(B)的数据作为表，取出来的数据赋值给R(A)
+
+   OP_SETGLOBAL 将R(A)的值赋值给以Kst[Bx] 作为全局符号表的索引的全局变量
+   OP_SETUPVAL  将R(A)的值赋值给以B作为upvalue数组索引的变量
+   OP_SETTABLE  将RK(C)的值赋值给R(A) 表中索引为RK(B)的变量
+   OP_NEWTABLE  创建一个新的表，并将其赋值给R(A),其中数组部分的初始大小是B,散列部分的大小是C
+   OP_SELF  做好调用成员函数之前的准备，其中待调用模块赋值到R(A+1)中，
+            而待调用的成员函数存放在R(A)中，待调用的模块存放在R(B)中，待调用的函数名放在RK(C)中
+
+
+   OP_ADD  加法操作
+   OP_SUB  减法操作
+   OP_MUL  乘法操作
+   OP_DIV  除法操作
+   OP_MOD  模操作
+   OP_POW  乘方操作
+   OP_UNM  取负操作
+   OP_NOT  非操作
+
+   OP_LEN  取长度操作
+   OP_CONCAT 连接操作
+   OP_JMP  跳转操作
+   OP_EQ   比较相等操作，如果比较RK(B)和RK(C) 所得的结果不等于A,那么递增pc指令
+   OP_LT  比较小于操作，如果比较RK(B) 小于RK(C)所得的结果不等于A,那么递增pc指令
+   OP_LE  比较小于等于操作，如果比较RK(B) 小于等于RK(C)所得的结果不等于A,那么递增pc指令
+
+   OP_TEST  测试操作，如果R(A)参数的布尔值不等于C,将pc指针加1，直接跳过下一条指令的执行
+   OP_TESTSET 测试设置操作，与OP_TEST指令类似，所不同的是当比较的参数不相等时，执行一个赋值操作
+   OP_CALL  调用函数指令，其中函数地址存放在R(A),函数参数数量存放在B中，有两种情况：
+            1）为0表示参数从A+1的位置一直到函数栈的top位置，这表示函数参数中有另外的函数调用，
+               因为在调用时并不知道有多少参数，所以只好告诉虚拟机函数参数一直到函数栈的top为止了
+            2）大于0时函数参数数量为B-1
+
+   OP_TAILCALL  尾调用操作，R(A) 存放函数地址，参数B表示函数参数数量，意义与前面OP_CALL指令的
+                B参数一样，C参数在这里恒为0 表示有多个返回值。
+
+   OP_RETURN    返回操作，R(A)表示函数参数的起始地址，B参数用于标示函数参数数量，有两种情况：
+                1）为0表示参数从A+1的位置一直到函数栈的top位置，这表示函数参数中有另外的函数
+                   调用，因为在调用时并不知道有多少参数，所以只好告诉虚拟机函数参数一直到
+                   函数栈的top位置了；
+                2）大于0时函数参数数量为B-1。参数C表示函数返回值数量，也有两种情况：
+                    1）为0时表示有可变数量的值返回。2）为1时表示返回值数量为C-1
+
+  OP_FORLOOP  数字for的循环操作，根据循环步长来更新循环变量，判断循环条件是否终止
+              如果没有，就跳转到循环体继续执行下一次循环，否则退出循环。R(A)存放
+              循环变量的初始值，R(A+1) 存放循环终止值，R(A+2）存放循环步长值，
+               R(A+3) 存放循环变量，sBx参数存放循环体开始指令的偏移量
+
+  OP_FORPREP  数字for循环准备操作。R(A)存放循环变量的初始值，R(A+1) 存放
+              循环终止值，R(A+2)存放循环步长值，R(A+3) 存放循环变量，
+              sBx参数存放紧跟着的OP_FORLOOP指令的偏移量
+
+  OP_TFORLOOP   泛型循环操作
+  OP_SETLIST    对表的数组部分进行赋值
+
+  OP_CLOSE      关闭所有在函数栈中位置在R(A)以上的变量
+  OP_CLOSURE    创建一个函数对象，其中函数Proto信息存放在Bx中，生成的函数
+                对象存放在R(A)中，这个指令后面可能会跟着MOVE或者
+                GET_UPVAL指令，取决于引用到的外部参数的位置，这些外部参数
+                的数量由n决定。
+  OP_VARARG     可变参数赋值操作
+
+
+
+   R(A) A参数作为寄存器索引，
+   pc 程序计数器(program counter),这个数据用于指示当前指令的地址
+   Kst(n) 常量数组中的第n个数据
+   Upvalue(n) upvalue数组中的第n个数据
+   Gbl[sym] 全局符号表中取名为sym的数据
+   RK(B) B可能是寄存器索引，也可能是常量数组索引，
+   sBx 有符号整数，用于标示跳转偏移量。
 */
 
 typedef enum {
 /*----------------------------------------------------------------------
 name		args	description
 ------------------------------------------------------------------------*/
-OP_MOVE,/*	A B	R(A) := R(B)					*/
-OP_LOADK,/*	A Bx	R(A) := Kst(Bx)					*/
-OP_LOADBOOL,/*	A B C	R(A) := (Bool)B; if (C) pc++			*/
-OP_LOADNIL,/*	A B	R(A) := ... := R(B) := nil			*/
-OP_GETUPVAL,/*	A B	R(A) := UpValue[B]				*/
+OP_MOVE,/*	A B	R(A) := R(B)			Copy a value between registers		*/
+OP_LOADK,/*	A Bx	R(A) := Kst(Bx)				Load a constant into a register	*/
+OP_LOADBOOL,/*	A B C	R(A) := (Bool)B; if (C) pc++		Load a boolean into a register	*/
+OP_LOADNIL,/*	A B	R(A) := ... := R(B) := nil		Load nil values into a range of registers	*/
+OP_GETUPVAL,/*	A B	R(A) := UpValue[B]		Read an upvalue into a register		*/
 
 OP_GETGLOBAL,/*	A Bx	R(A) := Gbl[Kst(Bx)]				*/
 OP_GETTABLE,/*	A B C	R(A) := R(B)[RK(C)]				*/
@@ -204,7 +352,7 @@ OP_SETLIST,/*	A B C	R(A)[(C-1)*FPF+i] := R(A+i), 1 <= i <= B	*/
 OP_CLOSE,/*	A 	close all variables in the stack up to (>=) R(A)*/
 OP_CLOSURE,/*	A Bx	R(A) := closure(KPROTO[Bx], R(A), ... ,R(A+n))	*/
 
-OP_VARARG/*	A B	R(A), R(A+1), ..., R(A+B-1) = vararg		*/
+OP_VARARG/*	A B	R(A), R(A+1), ..., R(A+B-1) = vararg		可变参数赋值操作 */
 } OpCode;
 
 
@@ -243,10 +391,10 @@ OP_VARARG/*	A B	R(A), R(A+1), ..., R(A+B-1) = vararg		*/
 */  
 
 enum OpArgMask {
-  OpArgN,  /* argument is not used */
-  OpArgU,  /* argument is used */
-  OpArgR,  /* argument is a register or a jump offset */
-  OpArgK   /* argument is a constant or register/constant */
+  OpArgN,  /* argument is not used 参数未被使用  只是没有作为R()或RK()宏的参数使用 */
+  OpArgU,  /* argument is used 已使用参数 */
+  OpArgR,  /* 表示该参数是寄存器或跳转偏移 argument is a register or a jump offset */
+  OpArgK   /* 表示该参数是常量还是寄存器，K表示常量 argument is a constant or register/constant */
 };
 
 LUAI_DATA const lu_byte luaP_opmodes[NUM_OPCODES];

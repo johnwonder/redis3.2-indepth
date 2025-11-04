@@ -13,10 +13,13 @@
 			"path": "../../rust/hello_world"
 		},
 		{
-			"path": "../../CPlusPlus/spdlog"
+			"path": "../../CPlusPlus/kvrocks"
 		},
 		{
-			"path": "../../CPlusPlus/kvrocks"
+			"path": "../../golang/workspace"
+		},
+		{
+			"path": "../../cproject/redis4.0.14"
 		}
 	],
 	"settings": {
@@ -109,7 +112,35 @@
 			"zmalloc.h": "c",
 			"ranges": "c",
 			"coroutine": "cpp",
-			"csignal": "cpp"
+			"csignal": "cpp",
+			"queue": "c",
+			"xfacet": "c",
+			"xhash": "c",
+			"xiosbase": "c",
+			"xlocale": "c",
+			"xlocbuf": "c",
+			"xlocinfo": "c",
+			"xlocmes": "c",
+			"xlocmon": "c",
+			"xlocnum": "c",
+			"xloctime": "c",
+			"xmemory": "c",
+			"xstring": "c",
+			"xtr1common": "c",
+			"xtree": "c",
+			"xutility": "c",
+			"server.h": "c",
+			"lvm.h": "c",
+			"stddef.h": "c",
+			"stdarg.h": "c",
+			"assert.h": "c",
+			"setjmp.h": "c",
+			"llimits.h": "c",
+			"lobject.h": "c",
+			"cerrno": "c",
+			"cfloat": "c",
+			"climits": "c",
+			"*.def": "c"
 		},
 		"makefile.configureOnOpen": true
 	}

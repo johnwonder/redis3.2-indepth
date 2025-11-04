@@ -163,6 +163,7 @@ void loadServerConfigFromString(char *config) {
     int slaveof_linenum = 0;
     sds *lines;
 
+    /*根据换行\n符号分隔*/
     lines = sdssplitlen(config,strlen(config),"\n",1,&totlines);
 
     for (i = 0; i < totlines; i++) {
@@ -170,11 +171,17 @@ void loadServerConfigFromString(char *config) {
         int argc;
 
         linenum = i+1;
+        /*  去除\t\r\n 符号 */
         lines[i] = sdstrim(lines[i]," \t\r\n");
 
         /* Skip comments and blank lines */
+        /* 如果第一个字符是# 或者\0 那就继续 */
         if (lines[i][0] == '#' || lines[i][0] == '\0') continue;
 
+        /* 按空格分隔参数 */
+        /*
+          所以redis配置文件中是 bind 127.0.0.1 类似这种配置
+        */
         /* Split into arguments */
         argv = sdssplitargs(lines[i],&argc);
         if (argv == NULL) {
@@ -187,15 +194,21 @@ void loadServerConfigFromString(char *config) {
             sdsfreesplitres(argv,argc);
             continue;
         }
+
+
         sdstolower(argv[0]);
 
         /* Execute config directives */
         if (!strcasecmp(argv[0],"timeout") && argc == 2) {
+
+            //最多空闲时间
             server.maxidletime = atoi(argv[1]);
             if (server.maxidletime < 0) {
                 err = "Invalid timeout value"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"tcp-keepalive") && argc == 2) {
+
+            //tcp -keepalive
             server.tcpkeepalive = atoi(argv[1]);
             if (server.tcpkeepalive < 0) {
                 err = "Invalid tcp-keepalive value"; goto loaderr;
@@ -387,6 +400,8 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"hz") && argc == 2) {
             server.hz = atoi(argv[1]);
+
+            //最小为1
             if (server.hz < CONFIG_MIN_HZ) server.hz = CONFIG_MIN_HZ;
             /* 最大为500 */
             if (server.hz > CONFIG_MAX_HZ) server.hz = CONFIG_MAX_HZ;
@@ -439,6 +454,8 @@ void loadServerConfigFromString(char *config) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"requirepass") && argc == 2) {
+
+            //密码长度太长
             if (strlen(argv[1]) > CONFIG_AUTHPASS_MAX_LEN) {
                 err = "Password is longer than CONFIG_AUTHPASS_MAX_LEN";
                 goto loaderr;
@@ -452,6 +469,8 @@ void loadServerConfigFromString(char *config) {
                 err = "dbfilename can't be a path, just a filename";
                 goto loaderr;
             }
+
+            //rdb文件名称
             zfree(server.rdb_filename);
             server.rdb_filename = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"hash-max-ziplist-entries") && argc == 2) {
@@ -520,6 +539,7 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"cluster-migration-barrier")
                    && argc == 2)
         {
+            //集群合并 屏障
             server.cluster_migration_barrier = atoi(argv[1]);
             if (server.cluster_migration_barrier < 0) {
                 err = "cluster migration barrier must zero or positive";
@@ -770,13 +790,17 @@ void configSetCommand(client *c) {
                 server.maxclients = orig_value;
                 return;
             }
+            //如果获取到的size 小于当前要设置的值
             if ((unsigned int) aeGetSetSize(server.el) <
                 server.maxclients + CONFIG_FDSET_INCR)
             {
+                //调整客户端最大数量
                 if (aeResizeSetSize(server.el,
                     server.maxclients + CONFIG_FDSET_INCR) == AE_ERR)
                 {
+
                     addReplyError(c,"The event loop API used by Redis is not able to handle the specified number of clients");
+                    //还是使用原来的值
                     server.maxclients = orig_value;
                     return;
                 }

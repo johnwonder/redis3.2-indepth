@@ -245,25 +245,90 @@ LUALIB_API void luaI_openlib (lua_State *L, const char *libname,
     int size = libsize(l);
     /* check whether lib already exists */
     luaL_findtable(L, LUA_REGISTRYINDEX, "_LOADED", 1);
+    
+    ///获 top-1处的表 _LOADED 获取key = libname的值 放入top处 
+    //并且top++
     lua_getfield(L, -1, libname);  /* get _LOADED[libname] */
+
+    //这时候栈是 _LOADED libname top
+
+    //这时候top-1处就是刚才放入的值
     if (!lua_istable(L, -1)) {  /* not found? */
+
+      //top -1
+      //这时候栈是 _LOADED top
       lua_pop(L, 1);  /* remove previous result */
       /* try global variable (and create one if it does not exist) */
+      /*
+        先在top处放入全局表
+      */
       if (luaL_findtable(L, LUA_GLOBALSINDEX, libname, size) != NULL)
         luaL_error(L, "name conflict for module " LUA_QS, libname);
+      
+      //创建完后栈变为  _LOADED 新表 top
+
+      //把top -1 处的值放入top处 然后top++
+      // 栈变为  _LOADED 新表 新表 top
       lua_pushvalue(L, -1);
+      //设置top -3处的表 key为libname 值 为 top-1处的值。
+      //然后 L->top--
       lua_setfield(L, -3, libname);  /* _LOADED[libname] = new table */
+      //栈变为  _LOADED 新表 top
     }
+    /*
+       p = index2adr(L, idx);
+      api_checkvalidindex(L, p);
+      while (++p < L->top) setobjs2s(L, p-1, p);
+      L->top--;
+    */
     lua_remove(L, -2);  /* remove _LOADED table */
+    //此时栈变为  新表  top
+
+
+
+   //如果是 upvalue 新表 top
+   //那么nup为的话就是
+
+   //1.  upvalue 新表 新表
+   //2.  upvalue upvalue 新表
+   //3.  新表 upvalue 新表
+    /*
+        p = index2adr(L, idx);
+      api_checkvalidindex(L, p);
+      for (q = L->top; q>p; q--) setobjs2s(L, q, q-1);
+      setobjs2s(L, p, L->top);
+    
+    */
+   
+    //也就是 大于 top -(nup+1) 到 top处的值 往top处移  
+    //最后top处的值插入 top -(nup+1) 处
+    //比如 1 2 3 4 top
+    // nup为1的话 就是
+    //     1 2 4 3 4
     lua_insert(L, -(nup+1));  /* move library table to below upvalues */
   }
   for (; l->name; l++) {
     int i;
+
+    // lua_insert(L, -(nup+1)) 操作后变为
+    // 新表 upvalue 新表
+
+    //那么 就变为 新表 upvalue upvalue top 
     for (i=0; i<nup; i++)  /* copy upvalues to the top */
-      lua_pushvalue(L, -nup);
+      lua_pushvalue(L, -nup); //top -1的值复制到top处 并top ++
+
+    //如果nup为1 那么 top会先-1 然后把 top处的upval放入 &cl->c.upvalue[n]
+
+    //然后把 func 放入top处
+    //那么 就变为 新表 upvalue func top
     lua_pushcclosure(L, l->func, nup);
+
+    //那么 nup为 1的话就是 top - 3处的表 key为 l->name value为 top-1处的值
+    //那么 就变为 新表 upvalue top
     lua_setfield(L, -(nup+2), l->name);
   }
+   //如果upvalue为1
+   //那么 就变为 新表 top
   lua_pop(L, nup);  /* remove upvalues */
 }
 
@@ -357,23 +422,55 @@ LUALIB_API const char *luaL_gsub (lua_State *L, const char *s, const char *p,
 LUALIB_API const char *luaL_findtable (lua_State *L, int idx,
                                        const char *fname, int szhint) {
   const char *e;
-  lua_pushvalue(L, idx);
+
+  lua_pushvalue(L, idx); //获取idx处的值放入top处 top++
+
+  //这时候  可能是 global top
   do {
     e = strchr(fname, '.');
     if (e == NULL) e = fname + strlen(fname);
+    //
     lua_pushlstring(L, fname, e - fname);
+    //这时候 global 表名 top
+
+    //把top-1 处的当做 获取在top-2 处的global中的值
+    //放入top -1 相当于替换下
     lua_rawget(L, -2);
     if (lua_isnil(L, -1)) {  /* no such field? */
+      //如果top -1处的值是Nil
+       
       lua_pop(L, 1);  /* remove this nil */
+
+      //这时候栈为 global top
+      //top处放入新建的表
+      //变为global 新表 top
       lua_createtable(L, 0, (*e == '.' ? 1 : szhint)); /* new table for field */
+      ////变为global 新表 fname top
       lua_pushlstring(L, fname, e - fname);
+
+      /* top -2处的值放入top处 */
+      //变为global 新表 fname 新表 top
       lua_pushvalue(L, -2);
+
+      //设置top-4处的global表 key为top-2 也就是fname 值为top-1也就是新表
+      //之后top-2
+      //变为变为global 新表 top
       lua_settable(L, -4);  /* set new table into field */
     }
     else if (!lua_istable(L, -1)) {  /* field has a non-table value? */
       lua_pop(L, 2);  /* remove table and value */
       return fname;  /* return problematic part of the name */
     }
+    //这时候 global 新表 top
+    //先获取top -2的地址，也就是global
+    //地址往后一位 此时是新表地址  小于L->top 那么把新表 替换global
+    //也就是变成 新表 新表 top
+    //最后L->top -- 变为新表 top
+    /*
+       while (++p < L->top) setobjs2s(L, p-1, p);
+       L->top--;
+    */
+    //变为global top
     lua_remove(L, -2);  /* remove previous table */
     fname = e + 1;
   } while (*e == '.');
@@ -548,7 +645,10 @@ static int errfile (lua_State *L, const char *what, int fnameindex) {
   return LUA_ERRFILE;
 }
 
-
+/*
+  编译脚本源码，并将指令存入Proto结构是通过luaL_loadfile函数来进行的
+  这步操作完之后，脚本代码并不会立即执行，而需要调用lua_pcall函数来执行Proto里的指令。
+*/
 LUALIB_API int luaL_loadfile (lua_State *L, const char *filename) {
   LoadF lf;
   int status, readstatus;
@@ -561,9 +661,11 @@ LUALIB_API int luaL_loadfile (lua_State *L, const char *filename) {
   }
   else {
     lua_pushfstring(L, "@%s", filename);
-    lf.f = fopen(filename, "r");
+    lf.f = fopen(filename, "r"); //打开文件
     if (lf.f == NULL) return errfile(L, "open", fnameindex);
   }
+  //getc是C语言标准库中用于从文件流读取字符的标准函数，其函数原型为int getc(FILE *stream)，
+  //通过文件指针参数定位输入流。读取成功时返回字符的整型值，遇到文件末尾或错误时返回EOF，需使用feof或ferror区分具体状态
   c = getc(lf.f);
   if (c == '#') {  /* Unix exec. file? */
     lf.extraline = 1;
@@ -578,6 +680,7 @@ LUALIB_API int luaL_loadfile (lua_State *L, const char *filename) {
     lf.extraline = 0;
   }
   ungetc(c, lf.f);
+  
   status = lua_load(L, getF, &lf, lua_tostring(L, -1));
   readstatus = ferror(lf.f);
   if (filename) fclose(lf.f);  /* close file (even in case of errors) */
@@ -625,14 +728,26 @@ LUALIB_API int (luaL_loadstring) (lua_State *L, const char *s) {
 
 
 static void *l_alloc (void *ud, void *ptr, size_t osize, size_t nsize) {
+
+  //ud表示不适用
   (void)ud;
+  //osize表示旧内存的大小
   (void)osize;
+  //nsize表示当前要开辟的新内存块大小
+  //当要开辟一块新的内存时，nsize的值必须大于0
   if (nsize == 0) {
+    
+    //lua虚拟机要释放一块内存也很简单，还是调用frealloc所指向的函数
+    //只需要将nsize的值置为0即可。
     free(ptr);
     return NULL;
   }
   else
     return realloc(ptr, nsize);
+
+    //当ptr不为null指针时，realloc 会先开辟nsize大小的内存块，
+    //并且将ptr指向的内存块的数据复制到新开辟的内存块中，并且将新地址返回。
+    //如果ptr为空，则不发生复制操作，直接开辟新内存。
 }
 
 

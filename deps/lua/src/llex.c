@@ -23,6 +23,7 @@
 #include "ltable.h"
 #include "lzio.h"
 
+// 词法分析器
 
 
 #define next(ls) (ls->current = zgetc(ls->z))
@@ -33,6 +34,11 @@
 #define currIsNewline(ls)	(ls->current == '\n' || ls->current == '\r')
 
 
+/*
+    "<number>", "<name>", "<string>", "<eof>" 并不真实
+    作为保留关键字存在，但是因为有相应的保留字Token类型，
+    所以也就干脆定义一个对应的字符串了
+*/
 /* ORDER RESERVED */
 const char *const luaX_tokens [] = {
     "and", "break", "do", "else", "elseif",
@@ -60,7 +66,11 @@ static void save (LexState *ls, int c) {
   b->buffer[b->n++] = cast(char, c);
 }
 
-
+/*
+  这里存放的值是数组luaX_tokens中的索引。这样，一方面可以迅速定位到
+  是哪个关键字，另一方面如果这个reserved字段不为0，则表示该字符串是不可自动回收的，
+  在GC过程中会略过对这个字符串的处理。
+*/
 void luaX_init (lua_State *L) {
   int i;
   for (i=0; i<NUM_RESERVED; i++) {
@@ -420,13 +430,19 @@ static int llex (LexState *ls, SemInfo *seminfo) {
           return TK_NUMBER;
         }
         else if (isalpha(ls->current) || ls->current == '_') {
+
+          //标识符或关键字
           /* identifier or reserved word */
           TString *ts;
           do {
             save_and_next(ls);
           } while (isalnum(ls->current) || ls->current == '_');
+
+
           ts = luaX_newstring(ls, luaZ_buffer(ls->buff),
                                   luaZ_bufflen(ls->buff));
+
+          
           if (ts->tsv.reserved > 0)  /* reserved word? */
             return ts->tsv.reserved - 1 + FIRST_RESERVED;
           else {
@@ -444,6 +460,14 @@ static int llex (LexState *ls, SemInfo *seminfo) {
   }
 }
 
+/*
+  标识符：字母，数字，下划线组成的字符串，其中首字母不能是数字。
+  关键字：and break do else elseif
+
+
+
+  每次调用这个函数，就会从文本中抽取出一个token，供语法分析器使用。
+*/
 
 void luaX_next (LexState *ls) {
   ls->lastline = ls->linenumber;

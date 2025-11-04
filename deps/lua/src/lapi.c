@@ -29,7 +29,12 @@
 #include "lundump.h"
 #include "lvm.h"
 
+// c语言接口
 
+/*
+ 检查API如何在内部实现。略读一下就能对代码有个感觉。根据需要交叉引用lua.h和luaconf.h
+
+*/
 
 const char lua_ident[] =
   "$Lua: " LUA_RELEASE " " LUA_COPYRIGHT " $\n"
@@ -192,9 +197,16 @@ LUA_API void lua_insert (lua_State *L, int idx) {
   StkId p;
   StkId q;
   lua_lock(L);
+  //获取idx处地址
   p = index2adr(L, idx);
   api_checkvalidindex(L, p);
+  //比如栈为 1 2 3 top
+  //现在p 指向 2
+  // 1. 变为 1 2 3 3
+  // 2. 变为 1 2 2 3
   for (q = L->top; q>p; q--) setobjs2s(L, q, q-1);
+
+  //那么 变为 1 3 2 3
   setobjs2s(L, p, L->top);
   lua_unlock(L);
 }
@@ -482,7 +494,7 @@ LUA_API const char *lua_pushfstring (lua_State *L, const char *fmt, ...) {
   return ret;
 }
 
-
+/*lua_pushcfunction 会调用*/
 LUA_API void lua_pushcclosure (lua_State *L, lua_CFunction fn, int n) {
   Closure *cl;
   lua_lock(L);
@@ -493,9 +505,14 @@ LUA_API void lua_pushcclosure (lua_State *L, lua_CFunction fn, int n) {
   L->top -= n;
   while (n--)
     setobj2n(L, &cl->c.upvalue[n], L->top+n);
+
+  //把cl 放入top位置
   setclvalue(L, L->top, cl);
   lua_assert(iswhite(obj2gco(cl)));
+
+  //增加top
   api_incr_top(L);
+  
   lua_unlock(L);
 }
 
@@ -816,6 +833,10 @@ LUA_API int lua_pcall (lua_State *L, int nargs, int nresults, int errfunc) {
     api_checkvalidindex(L, o);
     func = savestack(L, o);
   }
+
+  //获取需要调用的函数指针。
+  //在luaL_dofile中调用lua_pcall时，这里传入的参数是0，
+  //也就是这里得到的函数对象指针就是前面f_parser函数中最后两句代码放入lua栈的Closure指针
   c.func = L->top - (nargs+1);  /* function to be called */
   c.nresults = nresults;
   status = luaD_pcall(L, f_call, &c, savestack(L, c.func), func);

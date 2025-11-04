@@ -239,6 +239,11 @@ void zfree(void *ptr) {
 #endif
 }
 
+/**
+ * 
+ * 根据参数s的长度 分配一块同样长度的空间，
+ * 并且把s的内容拷贝到所在空间
+ */
 char *zstrdup(const char *s) {
     size_t l = strlen(s)+1;
     char *p = zmalloc(l);

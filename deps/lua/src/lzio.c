@@ -17,6 +17,7 @@
 #include "lstate.h"
 #include "lzio.h"
 
+// 缓存流接口
 
 int luaZ_fill (ZIO *z) {
   size_t size;
