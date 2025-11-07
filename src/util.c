@@ -461,7 +461,7 @@ int d2string(char *buf, size_t len, double value) {
  * having run_id == A, and you reconnect and it has run_id == B, you can be
  * sure that it is either a different instance or it was restarted. */
 void getRandomHexChars(char *p, unsigned int len) {
-    char *charset = "0123456789abcdef";
+    char *charset = "0123456789abcdef"; //16个字符
     unsigned int j;
 
     /* Global state. */
@@ -475,9 +475,9 @@ void getRandomHexChars(char *p, unsigned int len) {
          * function we just need non-colliding strings, there are no
          * cryptographic security needs. */
         /*
-        初始化种子并在计数器模式下使用SHA1
-        初始化种子并在计数器模式下使用SHA1，其中我们使用渐进计数器对相同的种子进行散列
-        对于这个函数的目标，我们只需要不冲突的字符串，不需要加密安全性
+        初始化种子并在计数器模式下使用SHA1，
+        我们使用渐进计数器对相同的种子进行散列
+        这个函数的目标是只需要不冲突的字符串，不需要加密安全性
         */
         /*
         /dev/random和/dev/urandom是Linux系统中提供的随机伪设备，这两个设备的任务，是提供永不为空的随机字节数据流。
@@ -490,6 +490,8 @@ void getRandomHexChars(char *p, unsigned int len) {
     }
 
     if (seed_initialized) {
+
+        //len初始化为40
         while(len) {
             /*
                 Digest 表示通过‌单向哈希函数‌对任意长度数据生成的‌固定长度唯一标识
@@ -497,18 +499,47 @@ void getRandomHexChars(char *p, unsigned int len) {
             */
             unsigned char digest[20];
             SHA1_CTX ctx;
+            //最大一次拷贝20
             unsigned int copylen = len > 20 ? 20 : len;
 
             SHA1Init(&ctx);
+            
+            /*
+                对于基本数据类型的变量，sizeof(variable) 的结果与 sizeof(type) 相同，
+                例如 int num;，sizeof(num) 和 sizeof(int) 结果一致。
+                然而，对于结构体和联合体变量，sizeof 的结果可能会受到结构体或联合体成员对齐规则的影响。
+                结构体成员在内存中可能会按照特定的对齐方式存储，这可能导致结构体实际占用的内存大于其成员大小之和
+            
+                对于普通变量，sizeof(variable) 同样在编译时确定大小。但对于数组变量，情况稍有不同。
+                如果数组是静态分配的（在栈上或全局作用域中定义），sizeof(variable) 也是在编译时确定；
+                如果数组是动态分配的（使用 malloc 等函数），
+                sizeof 操作的是指针，而不是数组本身，
+                其结果是指针的大小（在 32 位系统上通常为 4 字节，64 位系统上通常为 8 字节），
+                这也是在编译时确定。
+            */
+
+
             SHA1Update(&ctx, seed, sizeof(seed));
+
+            /*
+ 
+             counter的类型：通常是整数（int、uint32_t等），
+             代码中用sizeof(counter)获取其字节数，说明是将整数的 “二进制原始数据” 传入 SHA1（而非字符串形式）。
+            */
             SHA1Update(&ctx, (unsigned char*)&counter,sizeof(counter));
+
             SHA1Final(digest, &ctx);
+            //counter自增1
             counter++;
 
+            //把digest中的内容拷贝到p中
             memcpy(p,digest,copylen);
 
             /* 转换成十六进制数字 */
             /* Convert to hex digits. */
+            //p[j] 与0x0F 做与运算
+            //0x0F 00001111
+            //因为charset数组最多16个字符
             for (j = 0; j < copylen; j++) p[j] = charset[p[j] & 0x0F];
             len -= copylen;
             p += copylen;
@@ -516,7 +547,7 @@ void getRandomHexChars(char *p, unsigned int len) {
     } else {
         /*
             如果我们不能从 /dev/urandom 读取
-
+            做一些合理的努力，以创建一些熵，因为这个函数用于生成run_id和集群实例id
         */
         /* If we can't read from /dev/urandom, do some reasonable effort
          * in order to create some entropy, since this function is used to
@@ -524,30 +555,44 @@ void getRandomHexChars(char *p, unsigned int len) {
         char *x = p;
         unsigned int l = len;
         struct timeval tv;
+        //获取进程id
         pid_t pid = getpid();
 
         /* Use time and PID to fill the initial array. */
         gettimeofday(&tv,NULL);
         if (l >= sizeof(tv.tv_usec)) {
+            //把tv_usec拷贝到x中
             memcpy(x,&tv.tv_usec,sizeof(tv.tv_usec));
+
+            //l减去 sizeof(tv.tv_usec) 个字节
             l -= sizeof(tv.tv_usec);
+
+            //x指针向后移动sizeof(tv.tv_usec)个字节（8字节）
             x += sizeof(tv.tv_usec);
         }
         if (l >= sizeof(tv.tv_sec)) {
+            //把tv_sec拷贝到x中
             memcpy(x,&tv.tv_sec,sizeof(tv.tv_sec));
+             //l减去 sizeof(tv.tv_sec) 个字节
             l -= sizeof(tv.tv_sec);
+             //x指针向后移动sizeof(tv.tv_sec)个字节（8字节）
             x += sizeof(tv.tv_sec);
         }
         if (l >= sizeof(pid)) {
+            //把pid拷贝到x中
             memcpy(x,&pid,sizeof(pid));
+             //l减去 sizeof(pid) 个字节
             l -= sizeof(pid);
+            //x指针向后移动sizeof(tv.pid)个字节（8字节）
             x += sizeof(pid);
         }
+
+        //跟之前的 dictSetHashFunctionSeed(tv.tv_sec^tv.tv_usec^getpid()); 有点像啊
         /* Finally xor it with rand() output, that was already seeded with
          * time() at startup, and convert to hex digits. */
         for (j = 0; j < len; j++) {
-            p[j] ^= rand();
-            p[j] = charset[p[j] & 0x0F];
+            p[j] ^= rand(); //p[j]和rand() 随机数做异或运算
+            p[j] = charset[p[j] & 0x0F]; //p[j]和0x0F做与运算
         }
     }
 }

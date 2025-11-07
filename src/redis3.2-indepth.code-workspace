@@ -140,7 +140,11 @@
 			"cerrno": "c",
 			"cfloat": "c",
 			"climits": "c",
-			"*.def": "c"
+			"*.def": "c",
+			"stdio.h": "c",
+			"stdlib.h": "c",
+			"time.h": "c",
+			"solarisfixes.h": "c"
 		},
 		"makefile.configureOnOpen": true
 	}

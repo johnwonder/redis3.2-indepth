@@ -29,6 +29,7 @@
 
 #ifndef __REDIS_H
 #define __REDIS_H
+//当多个源文件（.c文件）包含这个redis.h时，对于每个编译单元（源文件及其包含的头文件），编译器只会处理一次redis.h的内容
 
 #include "fmacros.h"
 #include "config.h"
@@ -849,8 +850,8 @@ struct redisServer {
     char *pidfile;              /* PID file path */
     int arch_bits;              /* 32 or 64 depending on sizeof(long) */
     int cronloops;              /* Number of times the cron function run */
-    char runid[CONFIG_RUN_ID_SIZE+1];  /* ID always different at every exec.  每个进程的ID总是不同的*/
-    int sentinel_mode;          /* True if this instance is a Sentinel. */
+    char runid[CONFIG_RUN_ID_SIZE+1];  /* initServerConfig 中会初始化 ID always different at every exec.  每个进程的ID总是不同的*/
+    int sentinel_mode;          /* checkForSentinelMode 函数中会返回1或者0 如果这个实例是哨兵 那就为true True if this instance is a Sentinel. */
     /* Networking */
     int port;                   /* TCP listening port */
     int tcp_backlog;            /* TCP listen() backlog */
@@ -1109,7 +1110,7 @@ struct redisServer {
     int watchdog_period;  /* Software watchdog period in ms. 0 = off */
     /* System hardware info */
     size_t system_memory_size;  /* Total memory in system as reported by OS */
-};
+};//结尾带分号
 
 typedef struct pubsubPattern {
     client *client;
@@ -1196,7 +1197,7 @@ typedef struct {
 /*-----------------------------------------------------------------------------
  * Extern declarations
  *----------------------------------------------------------------------------*/
-//外部变量
+//外部变量 这样其他文件中就可以获取到这个变量
 extern struct redisServer server; 
 extern struct sharedObjectsStruct shared;
 extern dictType setDictType; //集合字典类型

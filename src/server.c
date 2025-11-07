@@ -1829,6 +1829,7 @@ void createSharedObjects(void) {
 }
 
 // 在读取配置文件之前 ，初始化一些默认配置 
+// 只在server.c中定义
 void initServerConfig(void) {
     int j;
 
@@ -1841,30 +1842,50 @@ void initServerConfig(void) {
     server.hz = CONFIG_DEFAULT_HZ;//10
     //牛逼
     server.runid[CONFIG_RUN_ID_SIZE] = '\0';
+
+    /*在windows下 用mingw 编译的时候sizeof(long) 返回4*/
+    /*这里也就是说long 有可能是8字节了*/
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
-    server.port = CONFIG_DEFAULT_SERVER_PORT;
+    server.port = CONFIG_DEFAULT_SERVER_PORT;//6379
     /*https://juejin.cn/post/7155997400484544543*/
-    /*半 全 两个队列 */
+    /*半 全 两个队列  redis.conf中可以修改*/
     server.tcp_backlog = CONFIG_DEFAULT_TCP_BACKLOG; //https://www.cnblogs.com/wanpengcoder/p/5354469.html
     server.bindaddr_count = 0;
     server.unixsocket = NULL;
     server.unixsocketperm = CONFIG_DEFAULT_UNIX_SOCKET_PERM;
-    server.ipfd_count = 0;
-    server.sofd = -1;//为啥为-1
-    server.protected_mode = CONFIG_DEFAULT_PROTECTED_MODE;
+    server.ipfd_count = 0; // 当做参数传入 listenToPort 函数返回当前监听的端口数量
+    server.sofd = -1;//为啥为-1 unix socket
+
+    //参考networking.c中的 acceptCommonHandler函数
+    server.protected_mode = CONFIG_DEFAULT_PROTECTED_MODE; //1
     server.dbnum = CONFIG_DEFAULT_DBNUM; //16
+
+    /*
+     在编程、通信等领域，可指 “代码冗余”“信息传输中的多余数据”（此时可译为 “冗余度”）。
+    例：We need to reduce the code’s verbosity to improve efficiency.（我们需要降低代码的冗余度以提升效率。）
+    */
     server.verbosity = CONFIG_DEFAULT_VERBOSITY; //默认是LL_NOTICE
+
+    //todo 写篇
     server.maxidletime = CONFIG_DEFAULT_CLIENT_TIMEOUT; /* 默认为0 */
-    server.tcpkeepalive = CONFIG_DEFAULT_TCP_KEEPALIVE;
+
+    //todo 写篇
+    server.tcpkeepalive = CONFIG_DEFAULT_TCP_KEEPALIVE; //300
+
+    //todo 写篇
     server.active_expire_enabled = 1;
-    server.client_max_querybuf_len = PROTO_MAX_QUERYBUF_LEN;
+
+    //todo 写篇
+    server.client_max_querybuf_len = PROTO_MAX_QUERYBUF_LEN; //查询缓存 1GB
     server.saveparams = NULL;
     server.loading = 0;
     server.logfile = zstrdup(CONFIG_DEFAULT_LOGFILE); //默认为空
     server.syslog_enabled = CONFIG_DEFAULT_SYSLOG_ENABLED; //0
     server.syslog_ident = zstrdup(CONFIG_DEFAULT_SYSLOG_IDENT);
     server.syslog_facility = LOG_LOCAL0;
-    server.daemonize = CONFIG_DEFAULT_DAEMONIZE;
+
+    //todo 写篇
+    server.daemonize = CONFIG_DEFAULT_DAEMONIZE; //0
     server.supervised = 0;
     server.supervised_mode = SUPERVISED_NONE;
 
@@ -1906,7 +1927,7 @@ void initServerConfig(void) {
     //当hash只有少数条目时使用一个内存紧凑的数据结构， 最大条目没有给定一个阈值。
     //这些阈值可以通过以下指令配置。
     server.hash_max_ziplist_entries = OBJ_HASH_MAX_ZIPLIST_ENTRIES; //最大ziplist 的hash数量
-    server.hash_max_ziplist_value = OBJ_HASH_MAX_ZIPLIST_VALUE;
+    server.hash_max_ziplist_value = OBJ_HASH_MAX_ZIPLIST_VALUE; //64
 
 
     server.list_max_ziplist_size = OBJ_LIST_MAX_ZIPLIST_SIZE;//-2
@@ -1925,12 +1946,12 @@ void initServerConfig(void) {
     server.cluster_enabled = 0; //是否开启集群
     server.cluster_node_timeout = CLUSTER_DEFAULT_NODE_TIMEOUT; //集群节点的超时时间
     server.cluster_migration_barrier = CLUSTER_DEFAULT_MIGRATION_BARRIER;
-    server.cluster_slave_validity_factor = CLUSTER_DEFAULT_SLAVE_VALIDITY;
+    server.cluster_slave_validity_factor = CLUSTER_DEFAULT_SLAVE_VALIDITY; //10
     server.cluster_require_full_coverage = CLUSTER_DEFAULT_REQUIRE_FULL_COVERAGE;
     server.cluster_configfile = zstrdup(CONFIG_DEFAULT_CLUSTER_CONFIG_FILE); //集群的配置文件名称
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType,NULL);
     server.next_client_id = 1; /* Client IDs, start from 1 .*/ //客户端标识符
-    server.loading_process_events_interval_bytes = (1024*1024*2);
+    server.loading_process_events_interval_bytes = (1024*1024*2); //2mb
     server.lua_time_limit = LUA_SCRIPT_TIME_LIMIT; //lua 脚本的超时时间 默认5秒
 
     /*lru 过期时钟*/
@@ -1983,7 +2004,7 @@ void initServerConfig(void) {
     R_Zero = 0.0;
     R_PosInf = 1.0/R_Zero;
     R_NegInf = -1.0/R_Zero;
-    R_Nan = R_Zero/R_Zero;
+    R_Nan = R_Zero/R_Zero; //not a number
 
     /*命令列表 -- 我们在这里初始化是因为它是初始化的一部分
         由于命令名字可以通过redis.conf改变
@@ -2010,7 +2031,7 @@ void initServerConfig(void) {
 
     /* Slow log */
     server.slowlog_log_slower_than = CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN;
-    server.slowlog_max_len = CONFIG_DEFAULT_SLOWLOG_MAX_LEN;
+    server.slowlog_max_len = CONFIG_DEFAULT_SLOWLOG_MAX_LEN; //128
 
     /* Latency monitor */
     server.latency_monitor_threshold = CONFIG_DEFAULT_LATENCY_MONITOR_THRESHOLD;
@@ -4653,6 +4674,9 @@ void memtest(size_t megabytes, int passes);
 /* 如果argv[0]恰好是“redis-sentinel”。*/
 /* Returns 1 if there is --sentinel among the arguments or if
  * argv[0] is exactly "redis-sentinel". */
+/*
+  只在server.c中定义
+*/
 int checkForSentinelMode(int argc, char **argv) {
     int j;
     /*如果第一个参数就是 redis-sentinel*/
@@ -4848,6 +4872,22 @@ int main(int argc, char **argv) {
     */
     printf("开始启动\n");
     //定义一个结构体变量
+
+
+    /*
+      https://learn.microsoft.com/en-us/windows/win32/api/winsock2/ns-winsock2-timeval
+      The timeval structure is used to specify a time interval. 
+      It is associated with the Berkeley Software Distribution (BSD) Time.h header file.
+
+      tv_sec
+      Time interval, in seconds.
+
+      tv_usec
+      Time interval, in microseconds.
+      This value is used in combination with the tv_sec member to represent time interval values 
+      that are not a multiple of seconds.
+    
+    */
     struct timeval tv; //局部变量 函数执行完后释放内存
     int j;//声明一个int变量 栈上分配，自动释放，需手动初始化
     //int j; 的作用是「定义变量 + 分配内存」—— 内存已经存在，但里面的数据是不确定的（局部变量）或默认 0（全局 / 静态）；
@@ -4909,7 +4949,11 @@ int main(int argc, char **argv) {
     //LC_COLLATE：指定要设置的本地化类别为 "字符串排序与比较"
     //第二个参数 ""：表示使用系统环境变量（如 LANG、LC_ALL 等）所指定的当前区域设置
     setlocale(LC_COLLATE,"");
+
+    //设置zmalloc_thread_safe 全局变量为1
     zmalloc_enable_thread_safeness();
+
+    //设置静态函数指针
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
     /*
     可以认为rand()在每次被调用的时候，它会查看：
@@ -4921,6 +4965,11 @@ int main(int argc, char **argv) {
         ‌getpid函数‌是一个在Unix-like系统（如Linux和macOS）中常用的系统调用函数，
         用于获取当前进程的进程标识符（Process ID，简称PID）。
     */
+
+    /*
+     time(NULL) 是 C 语言标准库 <time.h> 中的一个函数，用于获取当前日历时间，
+     以秒为单位，从 1970 年 1 月 1 日 00:00:00 UTC（协调世界时）到当前时刻的秒数，这个时间也被称为Unix 时间戳。
+    */
     srand(time(NULL)^getpid());
 
     /*
@@ -4928,9 +4977,15 @@ int main(int argc, char **argv) {
     主要用于获取当前时间，包括秒和微秒信息。该函数返回一个struct timeval结构体，包含tv_sec（秒数）和tv_usec（微秒数）。
     */
     //获取时间后用来生成hash函数的种子
+
+    //第二个参数为时区信息，通常可以设置为 NULL，表示不关心时区信息
     gettimeofday(&tv,NULL);
 
     /*设置字典的 hash函数的种子*/
+
+    /*
+       tv.tv_usec 表示微秒部分
+    */
     dictSetHashFunctionSeed(tv.tv_sec^tv.tv_usec^getpid());
 
     /*

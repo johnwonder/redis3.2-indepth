@@ -129,6 +129,8 @@ void zlibc_free(void *ptr) {
 } while(0)
 
 static size_t used_memory = 0;
+
+/*文件作用域 它不能被其他源文件通过 extern 关键字访问*/
 static int zmalloc_thread_safe = 0;
 pthread_mutex_t used_memory_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -271,10 +273,12 @@ size_t zmalloc_used_memory(void) {
     return um;
 }
 
+/*用函数来设置静态变量*/
 void zmalloc_enable_thread_safeness(void) {
     zmalloc_thread_safe = 1;
 }
 
+//用函数来设置静态函数指针
 void zmalloc_set_oom_handler(void (*oom_handler)(size_t)) {
     //重新设置静态函数指针
     zmalloc_oom_handler = oom_handler;

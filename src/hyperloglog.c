@@ -34,6 +34,17 @@
 #include <stdint.h>
 #include <math.h>
 
+
+/*
+  https://mp.weixin.qq.com/s/vZ2c0lKXJNR1x8Is10iWkA
+  统计网站访客数量
+  PFADD visitors:20240101 user1 user2 user3
+  PFCOUNT visitors:20240101
+  PFMERGE all_visitors visitors:20240101 visitors:20240102
+
+  使用PFCOUNT命令来估计 HyperLogLog 中的基数（不同元素的数量）
+*/
+
 /* The Redis HyperLogLog implementation is based on the following ideas:
  *
  * * The use of a 64 bit hash function as proposed in [1], in order to don't
@@ -194,8 +205,8 @@ struct hllhdr {
 #define HLL_P 14 /* The greater is P, the smaller the error. */
 #define HLL_REGISTERS (1<<HLL_P) /* With P=14, 16384 registers. */
 #define HLL_P_MASK (HLL_REGISTERS-1) /* Mask to index register. */
-#define HLL_BITS 6 /* Enough to count up to 63 leading zeroes. */
-#define HLL_REGISTER_MAX ((1<<HLL_BITS)-1)
+#define HLL_BITS 6 /* 足以数到63个前导零 2的7次方等于128 Enough to count up to 63 leading zeroes. */
+#define HLL_REGISTER_MAX ((1<<HLL_BITS)-1) /*等于63*/
 #define HLL_HDR_SIZE sizeof(struct hllhdr)
 #define HLL_DENSE_SIZE (HLL_HDR_SIZE+((HLL_REGISTERS*HLL_BITS+7)/8))
 #define HLL_DENSE 0 /* Dense encoding. */
