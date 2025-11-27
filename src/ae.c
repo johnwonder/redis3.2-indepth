@@ -155,7 +155,7 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
         return AE_ERR;
         
-    //添加当前mask
+    //为事件添加当前mask
     fe->mask |= mask;
     if (mask & AE_READABLE) fe->rfileProc = proc;
     if (mask & AE_WRITABLE) fe->wfileProc = proc;
@@ -213,6 +213,9 @@ static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) 
     aeGetTime(&cur_sec, &cur_ms);
     when_sec = cur_sec + milliseconds/1000; //比如1/1000 等于0
     when_ms = cur_ms + milliseconds%1000; //比如1%1000 等于1
+
+     
+    //比如when_sec = 2  when_ms = 2500 
     if (when_ms >= 1000) {
         when_sec ++;
         when_ms -= 1000;
@@ -482,7 +485,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
         numevents = aeApiPoll(eventLoop, tvp);
         for (j = 0; j < numevents; j++) {
 
-            //从fired数组中取出
+            //从fired数组中取出文件描述符再对应到events数组中这个文件描述符的事件
             aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
 
             //当前触发的时候是否可读或者可写

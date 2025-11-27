@@ -399,12 +399,22 @@ void loadServerConfigFromString(char *config) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"hz") && argc == 2) {
+
+            //ASCII to integer
+            //需包含 <stdlib.h>（C 语言）或 <cstdlib>（C++）
+            //把字符串 str 转换为对应的十进制整数（int 类型）
+            //https://port70.net/~nsz/c/c11/n1570.html#7.22.1
+            //https://pubs.opengroup.org/onlinepubs/9699919799/functions/atoi.html
+            //简单字符串转整数（无需复杂错误处理、字符串格式规范）
             server.hz = atoi(argv[1]);
 
             //最小为1
             if (server.hz < CONFIG_MIN_HZ) server.hz = CONFIG_MIN_HZ;
             /* 最大为500 */
-            if (server.hz > CONFIG_MAX_HZ) server.hz = CONFIG_MAX_HZ;
+             if (server.hz > CONFIG_MAX_HZ) server.hz = CONFIG_MAX_HZ;
+
+            //为啥不用else if呢?
+
         } else if (!strcasecmp(argv[0],"appendonly") && argc == 2) {
             int yes;
 
@@ -677,6 +687,10 @@ loaderr:
 }
 
 /*从指定的文件名称加载服务器配置*/
+/*
+ 该函数在加载之前将存储在‘options’字符串中的额外配置指令附加到配置文件中
+ 文件名和选项都可以是NULL，在这种情况下被认为是空的。这样，loadServerConfig可以只用来加载文件或加载字符串
+*/
 /* Load the server configuration from the specified filename.
  * The function appends the additional configuration directives stored
  * in the 'options' string to the config file before loading.
@@ -701,8 +715,22 @@ void loadServerConfig(char *filename, char *options) {
                 exit(1);
             }
         }
+        /*
+          《C Primer Plus》：
+        fgets函数读取输入直到第1个换行符的后面，或读到文件结尾，
+        或者读取STLEN-1个字符，然后,fgets()在末尾
+        添加一个空字符使之成为一个字符串。字符串的大小是
+        其字符数加上一个空字符。如果fgets()在督导字符上限之前
+        已读完一整行，它会把表示行结尾的换行符放在空字符前面。
+        fgets函数在遇到EOF时将返回NULL值，可以利用这一机制检查
+        是否到达文件结尾；如果未遇到EOF则返回之前传给它的第一个参数地址。
+        
+        */
+        /*继续读取*/
         while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
             config = sdscat(config,buf);
+
+    
         if (fp != stdin) fclose(fp);
     }
     /* Append the additional options */
@@ -724,6 +752,7 @@ void loadServerConfig(char *filename, char *options) {
         if (yn == -1) goto badfmt; \
         _var = yn;
 
+/*  */
 #define config_set_numerical_field(_name,_var,min,max) \
     } else if (!strcasecmp(c->argv[2]->ptr,_name)) { \
         if (getLongLongFromObject(o,&ll) == C_ERR) goto badfmt; \

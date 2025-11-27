@@ -106,7 +106,11 @@ client *createClient(int fd) {
     c->fd = fd;
     c->name = NULL;
     c->bufpos = 0;
-    /* 客户端查询缓冲区相关 */
+    /*
+      客户端查询缓冲区相关 
+      
+      clientCron中 会有 clientsCronResizeQueryBuffer 的操作
+    */
     c->querybuf = sdsempty();//创建了sds字符串 initLen等于0
     c->querybuf_peak = 0; //最近（100ms或以上）查询大小的峰值
     /* 客户端查询缓冲区相关 */
@@ -279,6 +283,9 @@ int _addReplyToBuffer(client *c, const char *s, size_t len) {
     //如果标记了CLIENT_CLOSE_AFTER_REPLY 就直接返回
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return C_OK;
 
+    /*
+      已经有条目在reply列表中，我们就不能添加任何东西到静态缓冲中了
+    */
     /* If there already are entries in the reply list, we cannot
      * add anything more to the static buffer. */
     if (listLength(c->reply) > 0) return C_ERR;
@@ -304,6 +311,8 @@ void _addReplyObjectToList(client *c, robj *o) {
         /*添加到tail节点*/
         listAddNodeTail(c->reply,o);
         /*内部根据 raw 和embstr 两种 算出sds使用的内存 */
+
+        /* addReply(c,shared.mbulkhdr[ll]); 比如这里就是用的共享的对象 所以 如果两个客户端共享一个对象的话，那么两个客户端的reply_bytes内存总量肯定多出来了*/
         c->reply_bytes += getStringObjectSdsUsedMemory(o);
     } else {
         tail = listNodeValue(listLast(c->reply));
@@ -418,12 +427,16 @@ void addReply(client *c, robj *obj) {
      * If the encoding is RAW and there is room in the static buffer
      * we'll be able to send the object to the client without
      * messing with its page. */
+    /*raw 或者embstr 编码*/
     if (sdsEncodedObject(obj)) {
         //先尝试添加到缓冲区 //内部使用memcpy
         //如果缓冲区 添加不成功 才会把对象添加到c->reply中
+        /*如果c->reply 已经有节点了 也不会添加到c->buf中 */
         if (_addReplyToBuffer(c,obj->ptr,sdslen(obj->ptr)) != C_OK)
             _addReplyObjectToList(c,obj);
     } else if (obj->encoding == OBJ_ENCODING_INT) {
+        /*如果编码是数字*/
+
         /* Optimization: if there is room in the static buffer for 32 bytes
          * (more than the max chars a 64 bit integer can take as string) we
          * avoid decoding the object and go for the lower level approach. */
@@ -1107,6 +1120,11 @@ int writeToClient(int fd, client *c, int handler_installed) {
         然而，如果我们超过了最大内存限制，我们就忽略它，只是尽可能多地传递数据。
 
         也就是说超过64 kb 且 内存 没有达到最大内存 那就中断写
+
+        豆包翻译：
+        需要注意的是，我们会避免在单次事件中发送超过 NET_MAX_WRITES_PER_EVENT 字节的数据。
+        对于单线程服务器而言，这是一项合理的设计 —— 即便某个客户端通过超高速链路（能持续接收数据）
+        发送了超大请求（现实场景中可类比 “通过本地回环接口执行 KEYS * 命令” 的情况），服务器也能兼顾其他客户端的请求处理。
         */
         /* Note that we avoid to send more than NET_MAX_WRITES_PER_EVENT
          * bytes, in a single threaded server it's a good idea to serve
@@ -1116,6 +1134,8 @@ int writeToClient(int fd, client *c, int handler_installed) {
          *
          * However if we are over the maxmemory limit we ignore that and
          * just deliver as much data as it is possible to deliver. */
+
+        /*已经写回客户端的总字节数 大于 每次事件的最大写回数*/
         if (totwritten > NET_MAX_WRITES_PER_EVENT &&
             (server.maxmemory == 0 ||
              zmalloc_used_memory() < server.maxmemory)) break;
@@ -1591,6 +1611,7 @@ int processMultibulkBuffer(client *c) {
             } else {
                 //保存到c->argv里
                 //createStringObject会根据 字符串长度 来 编码成EMBSTR 或者rawstring
+                //内部就是拷贝字符串
                 c->argv[c->argc++] =
                     createStringObject(c->querybuf+pos,c->bulklen);
                 pos += c->bulklen+2; //位置增加
@@ -1670,6 +1691,7 @@ void processInputBuffer(client *c) {
             serverPanic("Unknown request type");
         }
 
+        //多个bulk 处理 有可能会看到 <=0 的长度
         /* Multibulk processing could see a <= 0 length. */
         if (c->argc == 0) {
             //让客户端准备处理下个命令
@@ -1727,6 +1749,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
          //计算下剩余bulk的长度还有多少
         int remaining = (unsigned)(c->bulklen+2)-sdslen(c->querybuf);
 
+        //就是还需要读取多少长度就够一个bulk
         //如果剩余长度 小于准备读取的长度 那么读取长度 就变为 剩余长度
         if (remaining < readlen) readlen = remaining;
     }
@@ -1781,6 +1804,8 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     //当前查询缓冲区长度  如果大于 最大缓冲区限制 那就释放客户端
     //client_max_querybuf_len 在initServerConfig的时候 会初始化为 1GB max query buffer
+
+    //什么时候会大于1GB呢
     if (sdslen(c->querybuf) > server.client_max_querybuf_len) {
 
         //ci就是可读的客户端信息字符串
@@ -1788,8 +1813,10 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
 
         bytes = sdscatrepr(bytes,c->querybuf,64);
         serverLog(LL_WARNING,"Closing client that reached max query buffer length: %s (qbuf initial bytes: %s)", ci, bytes);
+        //释放
         sdsfree(ci);
         sdsfree(bytes);
+
         freeClient(c);
         return;
     }
@@ -2179,6 +2206,11 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
     }
 }
 
+/*
+ 这个函数返回Redis实际上用来存储客户端仍然没有读取的回复的字节数，
+ 它是“虚拟的”，因为应答输出列表可能包含共享的对象，并且实际上没有使用额外的内存
+
+*/
 /* This function returns the number of bytes that Redis is virtually
  * using to store the reply still not read by the client.
  * It is "virtual" since the reply output list may contain objects that

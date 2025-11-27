@@ -304,7 +304,7 @@ void flushAppendOnlyFile(int force) {
     if (sdslen(server.aof_buf) == 0) return;
 
     if (server.aof_fsync == AOF_FSYNC_EVERYSEC)
-        sync_in_progress = bioPendingJobsOfType(BIO_AOF_FSYNC) != 0;
+        sync_in_progress = bioPendingJobsOfType(BIO_AOF_FSYNC) != 0; //返回挂起任务的数量
 
     /* 如果是每秒写入 并且不强制的话 */
     if (server.aof_fsync == AOF_FSYNC_EVERYSEC && !force) {
@@ -329,6 +329,8 @@ void flushAppendOnlyFile(int force) {
             /* Otherwise fall trough, and go write since we can't wait
              * over two seconds. */
             server.aof_delayed_fsync++;
+
+            //异步fsync 话费太长时间了，不等它了，写入AOF缓存
             serverLog(LL_NOTICE,"Asynchronous AOF fsync is taking too long (disk is busy?). Writing the AOF buffer without waiting for fsync to complete, this may slow down Redis.");
         }
     }
@@ -338,8 +340,8 @@ void flushAppendOnlyFile(int force) {
      * there is much to do about the whole server stopping for power problems
      * or alike */
 
-    latencyStartMonitor(latency);
-    /** 写入文件 */
+    latencyStartMonitor(latency);//latency是延迟的意思
+    /**把aof_buf缓存 写入文件 */
     nwritten = write(server.aof_fd,server.aof_buf,sdslen(server.aof_buf));
     latencyEndMonitor(latency);
     /* We want to capture different events for delayed writes:

@@ -60,8 +60,8 @@ typedef struct dictEntry {
     union {
         void *val;
         uint64_t u64;
-        int64_t s64;
-        double d;
+        int64_t s64; //设置过期时间的
+        double d; //有序集合设置分数的
     } v;
     struct dictEntry *next; /**链表*/ //解决哈希值的冲突问题。
 } dictEntry;

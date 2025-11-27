@@ -5129,7 +5129,9 @@ void askingCommand(client *c) {
  * In this mode slaves will not redirect clients as long as clients access
  * with read-only commands to keys that are served by the slave's master. */
 void readonlyCommand(client *c) {
+    //
     if (server.cluster_enabled == 0) {
+        //
         addReplyError(c,"This instance has cluster support disabled");
         return;
     }
@@ -5137,12 +5139,25 @@ void readonlyCommand(client *c) {
     addReply(c,shared.ok);
 }
 
+/* 把客户端readonly标记去除 */
 /* The READWRITE command just clears the READONLY command state. */
 void readwriteCommand(client *c) {
     c->flags &= ~CLIENT_READONLY;
     addReply(c,shared.ok);
 }
 
+/*
+   返回可以服务命令的指向集群节点的指针
+   为了使函数成功，命令应该只针对其中之一：
+
+   1）单个key( 甚至多次 像 LPOPRPUSH mylist mylist)
+   2) 在相同hash槽的多个key,当槽是稳定的（没有进行重分片）
+
+   如果成功，该函数返回能够为请求服务的节点
+   如果节点不是“我自己”，则必须执行重定向
+
+   
+*/
 /* Return the pointer to the cluster node that is able to serve the command.
  * For the function to succeed the command should only target either:
  *
@@ -5338,6 +5353,10 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     return n;
 }
 
+/*
+   发送给客户端正确的重定向编号
+   根据error_code，应该设置为CLUSTER_REDIR_*宏之一
+*/
 /* Send the client the right redirection code, according to error_code
  * that should be set to one of CLUSTER_REDIR_* macros.
  *

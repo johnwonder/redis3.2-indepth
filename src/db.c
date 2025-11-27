@@ -189,7 +189,10 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     int retval = dictAdd(db->dict, copy, val);
 
     serverAssertWithInfo(NULL,key,retval == DICT_OK);
+
+    /*这个很关键*/
     /*值类型为list*/
+    /*把*/
     if (val->type == OBJ_LIST) signalListAsReady(db, key);
 
     /*集群模式*/
@@ -322,7 +325,7 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
     serverAssert(o->type == OBJ_STRING);
     //如果对象引用不只一个 或者编码不是raw
     if (o->refcount != 1 || o->encoding != OBJ_ENCODING_RAW) {
-        //先解码
+        //先解码 raw和emstr就返回原来对象， 如果原来编码是数字就返回新的对象
         robj *decoded = getDecodedObject(o);
         //创建raw类型的对象
         o = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
@@ -959,8 +962,10 @@ void setExpire(redisDb *db, robj *key, long long when) {
     serverAssertWithInfo(NULL,key,kde != NULL);
     //查找原来的或者添加
     de = dictReplaceRaw(db->expires,dictGetKey(kde));
-    //设置s64
+    //设置到s64 联合体上
     dictSetSignedIntegerVal(de,when);
+
+
 }
 
 /* Return the expire time of the specified key, or -1 if no expire

@@ -99,15 +99,20 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     
     long long now = mstime();
     serverLog(LL_NOTICE,"key %s now: %lld expire: %lld .",key,now,milliseconds);
+
+    //设置过期时间
     if (expire) setExpire(c->db,key,now+milliseconds);
     
     //发送给订阅__keyspace@  频道的客户端
+    //set事件
     /* https://blog.csdn.net/qq_41453285/article/details/103290903 */
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
 
     //设置了缓存过期时间 发送通知给订阅者
     if (expire) notifyKeyspaceEvent(NOTIFY_GENERIC,
         "expire",key,c->db->id);
+
+
     addReply(c, ok_reply ? ok_reply : shared.ok);
 }
 
@@ -166,12 +171,16 @@ void setCommand(client *c) {
 
     /*调用命令的时候 再 编码对象 */
     /*一开始 只是创建一个 raw编码的对象*/
+    /*对值进行编码*/
     c->argv[2] = tryObjectEncoding(c->argv[2]);
+
+    //
     setGenericCommand(c,flags,c->argv[1],c->argv[2],expire,unit,NULL,NULL);
 }
 /* 键不存在就写入 */
 void setnxCommand(client *c) {
     c->argv[2] = tryObjectEncoding(c->argv[2]);
+    /*标记了NX*/
     setGenericCommand(c,OBJ_SET_NX,c->argv[1],c->argv[2],NULL,0,shared.cone,shared.czero);
 }
 
@@ -480,7 +489,7 @@ void appendCommand(client *c) {
     robj *o, *append;
 
     o = lookupKeyWrite(c->db,c->argv[1]);
-    //没有找到键 就创建
+    //没有找到值 就创建
     if (o == NULL) {
         /* Create the key */
         c->argv[2] = tryObjectEncoding(c->argv[2]);
@@ -497,6 +506,8 @@ void appendCommand(client *c) {
 
         /* "append" is an argument, so always an sds */
         append = c->argv[2];
+
+        //这里很关键啊 如果在setCommand的时候 编码的时候 释放 那这里就算不出len了
         totlen = stringObjectLen(o)+sdslen(append->ptr);
         if (checkStringLength(c,totlen) != C_OK)
             return;
@@ -507,7 +518,9 @@ void appendCommand(client *c) {
         o->ptr = sdscatlen(o->ptr,append->ptr,sdslen(append->ptr));
         totlen = sdslen(o->ptr);
     }
+    //发布修改key
     signalModifiedKey(c->db,c->argv[1]);
+    //通知事件
     notifyKeyspaceEvent(NOTIFY_STRING,"append",c->argv[1],c->db->id);
     server.dirty++;
     addReplyLongLong(c,totlen);

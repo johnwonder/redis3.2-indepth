@@ -79,14 +79,17 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_HZ        10      /* 1秒中段10次 中断次数/秒 Time interrupt calls/sec. */
 #define CONFIG_MIN_HZ            1 /* 最少频率  1秒1次*/
 #define CONFIG_MAX_HZ            500 /* 最多频率 1秒500次*/
+
+/*hz 可以通过config set hz 100修改或者配置文件中设置*/
+
 #define CONFIG_DEFAULT_SERVER_PORT        6379    /*默认TCP端口 TCP port */
 #define CONFIG_DEFAULT_TCP_BACKLOG       511     /*TCP 监听积压 TCP listen backlog */
 #define CONFIG_DEFAULT_CLIENT_TIMEOUT       0       /* default client timeout: infinite 默认客户端超时时间 无限长 */
-#define CONFIG_DEFAULT_DBNUM     16
-#define CONFIG_MAX_LINE    1024
-#define CRON_DBS_PER_CALL 16
-#define NET_MAX_WRITES_PER_EVENT (1024*64)
-#define PROTO_SHARED_SELECT_CMDS 10
+#define CONFIG_DEFAULT_DBNUM     16 /*默认数据库数量*/
+#define CONFIG_MAX_LINE    1024 /*fgets函数最多读取的字符数*/
+#define CRON_DBS_PER_CALL 16 /*一次调用 遍历数据库的数量 */
+#define NET_MAX_WRITES_PER_EVENT (1024*64) /*一次事件可写的最大字节数 64kb*/
+#define PROTO_SHARED_SELECT_CMDS 10 /*replicationFeedSlaves 的时候使用 省的创建对象了*/
 #define OBJ_SHARED_INTEGERS 10000
 #define OBJ_SHARED_BULKHDR_LEN 32
 #define LOG_MAX_LEN    1024 /* Default maximum length of syslog messages */
@@ -477,9 +480,11 @@ typedef long long mstime_t; /* millisecond time type. */
  * Data types
  *----------------------------------------------------------------------------*/
 
+/*一个redis对象，能够保存string,list和set的类型*/
 /* A redis object, that is a type able to hold a string / list / set */
 
-/* The actual Redis Object */
+/*https://blog.csdn.net/WhereIsHeroFrom/article/details/86501571*/
+/* The actual Redis Object 真正的redis对象 */
 #define LRU_BITS 24
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
 #define LRU_CLOCK_RESOLUTION 1000 /* LRU clock resolution in ms */
@@ -723,14 +728,14 @@ struct saveparam {
 
 /*共享对象结构*/
 struct sharedObjectsStruct {
-    robj *crlf, *ok, *err, *emptybulk, *czero, *cone, *cnegone, *pong, *space,
-    *colon, *nullbulk, *nullmultibulk, *queued,
-    *emptymultibulk, *wrongtypeerr, *nokeyerr, *syntaxerr, *sameobjecterr,
-    *outofrangeerr, *noscripterr, *loadingerr, *slowscripterr, *bgsaveerr,
-    *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *noreplicaserr,
-    *busykeyerr, *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
-    *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *rpop, *lpop,
-    *lpush, *emptyscan, *minstring, *maxstring,
+    robj *crlf, *ok, *err, *emptybulk, *czero, *cone, *cnegone, *pong, *space, //9
+    *colon, *nullbulk, *nullmultibulk, *queued, //13
+    *emptymultibulk, *wrongtypeerr, *nokeyerr, *syntaxerr, *sameobjecterr, //18
+    *outofrangeerr, *noscripterr, *loadingerr, *slowscripterr, *bgsaveerr, //23
+    *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *noreplicaserr, //28
+    *busykeyerr, *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk, //34
+    *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *rpop, *lpop, //40
+    *lpush, *emptyscan, *minstring, *maxstring, //44
     *select[PROTO_SHARED_SELECT_CMDS], //10
     *integers[OBJ_SHARED_INTEGERS],  //10000个
     *mbulkhdr[OBJ_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
@@ -868,7 +873,7 @@ struct redisServer {
     list *clients_to_close;     /* Clients to close asynchronously */
     list *clients_pending_write; /* 有写的或者安装handler There is to write or install handler. */
     list *slaves, *monitors;    /* salve和monitor的列表 List of slaves and MONITORs */ //双端链表
-    client *current_client; /* Current client, only used on crash report */
+    client *current_client; /* 崩溃报告 用 Current client, only used on crash report */
     int clients_paused;         /* True if clients are currently paused */
     mstime_t clients_pause_end_time; /* 撤销clients_paused的时间  Time when we undo clients_paused */
     char neterr[ANET_ERR_LEN];   /* Error buffer for anet.c */
@@ -992,6 +997,12 @@ struct redisServer {
     int slaveseldb;                 /* Last SELECTed DB in replication output */
     long long master_repl_offset;   /* 全局复制偏移 Global replication offset */
     int repl_ping_slave_period;     /* Master pings the slave every N seconds */
+
+    /*
+    Redis 的 部分重同步（Partial Resynchronization） 是主从复制中的核心优化机制 —— 简单说：当从库短暂断开连接后重连主库时，无需重新全量同步所有数据，
+    只需同步断开期间主库新增的增量数据，大幅减少网络带宽占用和同步耗时，提升主从复制的可靠性和效率。
+     当从库短暂断开连接后重连主库时，无需重新全量同步所有数据，只需同步断开期间主库新增的增量数据
+    */
     char *repl_backlog;             /* Replication backlog for partial syncs 部分同步的复制囤积*/
     long long repl_backlog_size;    /* Backlog circular buffer size */
     long long repl_backlog_histlen; /* Backlog actual data length */

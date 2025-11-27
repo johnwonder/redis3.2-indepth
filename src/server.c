@@ -56,6 +56,7 @@
 #include <sys/socket.h>
 
 /* Our shared "common" objects */
+/* 我们共享的通用对象*/
 
 struct sharedObjectsStruct shared;
 
@@ -113,17 +114,19 @@ struct redisServer server; /* server global state */
  * Every entry is composed of the following fields:
  *
  * name: a string representing the command name. 表示命令名称的字符串
- * function: pointer to the C function implementing the command.
- * arity: number of arguments, it is possible to use -N to say >= N
- * sflags: command flags as string. See below for a table of flags.
- * flags: flags as bitmask. Computed by Redis using the 'sflags' field.
+ * function: pointer to the C function implementing the command.  实现命令的函数指针
+ * arity: number of arguments, it is possible to use -N to say >= N 参数的数量，可能使用-N代表>=N
+ * sflags: command flags as string. See below for a table of flags. 字符串命令标记.
+ * flags: flags as bitmask. Computed by Redis using the 'sflags' field. 位标记，使用sflags字段计算
  * get_keys_proc: an optional function to get key arguments from a command.
  *                This is only used when the following three fields are not
  *                enough to specify what arguments are keys.
- * first_key_index: first argument that is a key
- * last_key_index: last argument that is a key
+ * first_key_index: first argument that is a key  第一个参数key
+ * last_key_index: last argument that is a key 最后一个参数key
  * key_step: step to get all the keys from first to last argument. For instance
  *           in MSET the step is two since arguments are key,val,key,val,...
+ * 从第一个参数到最后一个参数获取所有key的步长.
+ * 比如MSET的步长就是2,因为参数是key,val,key,val
  * microseconds: microseconds of total execution time for this command.
  * calls: total number of calls of this command.
  *
@@ -164,7 +167,7 @@ struct redisServer server; /* server global state */
  *    are not fast commands.
  */
 struct redisCommand redisCommandTable[] = {
-    {"get",getCommand,2,"rF",0,NULL,1,1,1,0,0}, //获取键命令 2个参数 读，快命令 
+    {"get",getCommand,2,"rF",0,NULL,1,1,1,0,0}, //获取键命令 2个参数 读，快命令,根据键获取值
     {"set",setCommand,-3,"wm",0,NULL,1,1,1,0,0}, //写命令 -3代表 >=3 个参数 m代表会增加内存
     {"setnx",setnxCommand,3,"wmF",0,NULL,1,1,1,0,0},  //写命令 3个参数  快命令
     {"setex",setexCommand,4,"wm",0,NULL,1,1,1,0,0}, //写命令  4个参数 会增加内存
@@ -497,6 +500,7 @@ long long ustime(void) {
      //https://blog.csdn.net/WhereIsHeroFrom/article/details/86501571/
     //unix 时间戳通过接口 mstime 获取，得到的是从 1970年1月1日早上8点到当前时刻的时间间隔，以毫秒为单位（mstime底层实现用的是 c 的系统函数 gettimeofday）
     gettimeofday(&tv, NULL);
+    //当前经过了多少秒
     ust = ((long long)tv.tv_sec)*1000000; // tv_sec 秒数 * 1000000 就是微秒数
     ust += tv.tv_usec; //微秒数
     return ust;
@@ -1113,6 +1117,14 @@ void activeExpireCycle(int type) {
 
 unsigned int getLRUClock(void) {
     //mstime 是返回毫秒数 那么 /LRU_CLOCK_RESOLUTION 就是秒数
+
+    // 举两个例子：
+    // 比如mstime() = 1000 ，那么 1000/ 1000 = 1
+    // 比如mstime() = 1001 , 那么 1001/ 1000 = 1
+    // 也就是要经过 1000毫秒 才会更新 Clock
+
+    //60秒 二进制是 111100‌  60000(ms) /1000 = 60
+    //61秒 二进制是 111101  61000(ms) /1000 = 61
     return (mstime()/LRU_CLOCK_RESOLUTION) & LRU_CLOCK_MAX;
 }
 
@@ -1212,7 +1224,7 @@ int clientsCronResizeQueryBuffer(client *c) {
 
     /*
         两个条件 会调整查询缓冲区
-        1.查询缓冲区 > BIG_ARG 1024*32 ，对于最近的峰值来说太大了 大于2倍
+        1.查询缓冲区 > BIG_ARG 1024*32 ，也就是32kB 对于最近的峰值来说太大了 大于2倍
 
         为啥要c->querybuf_peak+1 因为c->querybuf_peak赋值的是sdslen不包括最后的空字符
     */
@@ -1468,7 +1480,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * LRU_CLOCK_RESOLUTION define. */
 
     /*更新lruclock */
-    server.lruclock = getLRUClock();
+
+    /*//也就是在1000毫秒内 */
+    server.lruclock = getLRUClock(); //100毫秒更新一次
 
     /* Record the max memory used since the server was started. */
     if (zmalloc_used_memory() > server.stat_peak_memory)
@@ -1792,6 +1806,8 @@ void createSharedObjects(void) {
         int dictid_len;
 
         dictid_len = ll2string(dictid_str,sizeof(dictid_str),j);
+
+
         shared.select[j] = createObject(OBJ_STRING,
             sdscatprintf(sdsempty(),
                 "*2\r\n$6\r\nSELECT\r\n$%d\r\n%s\r\n",
@@ -1850,6 +1866,8 @@ void initServerConfig(void) {
     /*https://juejin.cn/post/7155997400484544543*/
     /*半 全 两个队列  redis.conf中可以修改*/
     server.tcp_backlog = CONFIG_DEFAULT_TCP_BACKLOG; //https://www.cnblogs.com/wanpengcoder/p/5354469.html
+
+    //在loadServerConfigFromString的时候会加上配置文件中bind的数量
     server.bindaddr_count = 0;
     server.unixsocket = NULL;
     server.unixsocketperm = CONFIG_DEFAULT_UNIX_SOCKET_PERM;
@@ -1866,7 +1884,7 @@ void initServerConfig(void) {
     */
     server.verbosity = CONFIG_DEFAULT_VERBOSITY; //默认是LL_NOTICE
 
-    //todo 写篇
+    //todo 写篇 已写一篇
     server.maxidletime = CONFIG_DEFAULT_CLIENT_TIMEOUT; /* 默认为0 */
 
     //todo 写篇
@@ -1874,6 +1892,7 @@ void initServerConfig(void) {
 
     //todo 写篇
     server.active_expire_enabled = 1;
+
 
     //todo 写篇
     server.client_max_querybuf_len = PROTO_MAX_QUERYBUF_LEN; //查询缓存 1GB
@@ -1920,9 +1939,12 @@ void initServerConfig(void) {
     server.notify_keyspace_events = 0; //默认是否开启键空间事件通知
     server.maxclients = CONFIG_DEFAULT_MAX_CLIENTS; //默认最多10000个客户端连接
     server.bpop_blocked_clients = 0; //多少个客户端因为bpop阻塞
+    
     server.maxmemory = CONFIG_DEFAULT_MAXMEMORY; //最大内存 默认为0 0代表不使用任何内存限制
     server.maxmemory_policy = CONFIG_DEFAULT_MAXMEMORY_POLICY; //最大内存策略 默认为 NO_EVICTION
     server.maxmemory_samples = CONFIG_DEFAULT_MAXMEMORY_SAMPLES; //随机抽样精度默认是5
+
+
     //跟默认配置一样
     //当hash只有少数条目时使用一个内存紧凑的数据结构， 最大条目没有给定一个阈值。
     //这些阈值可以通过以下指令配置。
@@ -1943,6 +1965,7 @@ void initServerConfig(void) {
     server.repl_min_slaves_to_write = CONFIG_DEFAULT_MIN_SLAVES_TO_WRITE; //写入slave的数量
     server.repl_min_slaves_max_lag = CONFIG_DEFAULT_MIN_SLAVES_MAX_LAG;
 
+    /*集群相关*/
     server.cluster_enabled = 0; //是否开启集群
     server.cluster_node_timeout = CLUSTER_DEFAULT_NODE_TIMEOUT; //集群节点的超时时间
     server.cluster_migration_barrier = CLUSTER_DEFAULT_MIGRATION_BARRIER;
@@ -1985,7 +2008,8 @@ void initServerConfig(void) {
     server.slave_announce_port = CONFIG_DEFAULT_SLAVE_ANNOUNCE_PORT;
     server.master_repl_offset = 0;
 
-    /* 主从复制  */
+    /* 主从复制  部分从同步 */
+    // 复制部分重新同步积压
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;
     server.repl_backlog_size = CONFIG_DEFAULT_REPL_BACKLOG_SIZE;
@@ -2364,6 +2388,7 @@ void initServer(void) {
     //设置信号处理器
     setupSignalHandlers();
 
+    /*syslog*/
     if (server.syslog_enabled) {
         openlog(server.syslog_ident, LOG_PID | LOG_NDELAY | LOG_NOWAIT,
             server.syslog_facility);
@@ -2421,13 +2446,13 @@ void initServer(void) {
     /*创建redis数据库，初始化内部状态*/
     /* Create the Redis databases, and initialize other internal state. */
     for (j = 0; j < server.dbnum; j++) {
-        server.db[j].dict = dictCreate(&dbDictType,NULL);
-        server.db[j].expires = dictCreate(&keyptrDictType,NULL);
-        server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL);
-        server.db[j].ready_keys = dictCreate(&setDictType,NULL);
-        server.db[j].watched_keys = dictCreate(&keylistDictType,NULL);
-        server.db[j].eviction_pool = evictionPoolAlloc();
-        server.db[j].id = j;
+        server.db[j].dict = dictCreate(&dbDictType,NULL); //数据库字典
+        server.db[j].expires = dictCreate(&keyptrDictType,NULL); //过期键字典
+        server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL); //阻塞键字典
+        server.db[j].ready_keys = dictCreate(&setDictType,NULL); //准备键字典
+        server.db[j].watched_keys = dictCreate(&keylistDictType,NULL); //watch键字典
+        server.db[j].eviction_pool = evictionPoolAlloc(); //淘汰池字典
+        server.db[j].id = j; 
         server.db[j].avg_ttl = 0;
     }
 
@@ -2521,7 +2546,7 @@ void initServer(void) {
     slowlogInit();
     latencyMonitorInit();
 
-    //后台io初始化 
+    //后台任务线程io初始化 
     //pthread
     bioInit();
 }
@@ -2973,6 +2998,7 @@ int processCommand(client *c) {
     */
     if (!strcasecmp(c->argv[0]->ptr,"quit")) {
         //添加ok回复到输出缓存中
+        //这里就是共享对象
         addReply(c,shared.ok);
         //设置标志
         c->flags |= CLIENT_CLOSE_AFTER_REPLY;
@@ -3015,6 +3041,8 @@ int processCommand(client *c) {
         不执行重定向有以下两个原因
         1.如果命令发送者是我们的master
         2.命令没有关键参数
+
+
     */
     /* If cluster is enabled perform the cluster redirection here.
      * However we don't perform the redirection if:
@@ -3040,6 +3068,7 @@ int processCommand(client *c) {
             } else {
                 flagTransaction(c);
             }
+            //根据error_code重定向客户端
             clusterRedirectClient(c,n,hashslot,error_code);
             return C_OK;
         }
@@ -3316,6 +3345,9 @@ int prepareForShutdown(int flags) {
 
 /*================================== Commands =============================== */
 
+/*
+  如果相同返回0，不同返回非0
+*/
 /* Return zero if strings are the same, non-zero if they are not.
  * The comparison is performed in a way that prevents an attacker to obtain
  * information about the nature of the strings just monitoring the execution
@@ -3327,6 +3359,8 @@ int prepareForShutdown(int flags) {
  */
 int time_independent_strcmp(char *a, char *b) {
     char bufa[CONFIG_AUTHPASS_MAX_LEN], bufb[CONFIG_AUTHPASS_MAX_LEN];
+
+
     /* The above two strlen perform len(a) + len(b) operations where either
      * a or b are fixed (our password) length, and the difference is only
      * relative to the length of the user provided string, so no information
@@ -4179,7 +4213,8 @@ void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEn
          * again in the key dictionary to obtain the value object. */
         if (sampledict != keydict) de = dictFind(keydict, key);
         o = dictGetVal(de);
-        //获取对象空闲时间间隔
+
+        //获取当前对象空闲时间间隔
         idle = estimateObjectIdleTime(o);
 
         /* Insert the element inside the pool.
@@ -4247,7 +4282,11 @@ void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEn
  * https://blog.csdn.net/fengyuyeguirenenen/article/details/123597846
 */
 int freeMemoryIfNeeded(void) {
+
+    //使用内存量， 需要释放的内存量，已经释放的内存量
     size_t mem_used, mem_tofree, mem_freed;
+
+    //从节点的数量
     int slaves = listLength(server.slaves);
     mstime_t latency, eviction_latency;
 
@@ -4276,12 +4315,20 @@ int freeMemoryIfNeeded(void) {
                 计算从服务的输出缓冲所使用的内存
             */
             unsigned long obuf_bytes = getClientOutputBufferMemoryUsage(slave);
-            if (obuf_bytes > mem_used)
-                mem_used = 0;
+
+            /*
+              addReply(c,shared.mbulkhdr[ll]); 内部会增加c->reply_bytes
+              但是这里就是用的共享的对象 所以 如果两个客户端共享一个对象的话，那么两个客户端的reply_bytes内存总量肯定多出来了
+            */
+            if (obuf_bytes > mem_used) //为啥会大于
+                mem_used = 0; // 
+                
             else
                 mem_used -= obuf_bytes; //移除从服务的输出缓存空间
         }
     }
+
+    /*这里在mem_used = 0 情况会有问题 4.0.14已改修改*/
     /*移除aof占用的空间*/
     if (server.aof_state != AOF_OFF) {
         mem_used -= sdslen(server.aof_buf);
@@ -4303,6 +4350,8 @@ int freeMemoryIfNeeded(void) {
     mem_tofree = mem_used - server.maxmemory;
     mem_freed = 0;
     latencyStartMonitor(latency); //开始记录时间
+
+    //当释放的内存总量 小于需要释放的总量时
     while (mem_freed < mem_tofree) {
         int j, k, keys_freed = 0;
         /*每个数据库*/
@@ -5038,6 +5087,8 @@ int main(int argc, char **argv) {
         initSentinelConfig(); //设置端口为26379
         /*初始化哨兵模式*/
         initSentinel();
+
+        //初始化哨兵
     }
 
     /* 检查我们是否需要以redis-check-rdb模式启动 */
@@ -5127,8 +5178,11 @@ int main(int argc, char **argv) {
         if (server.sentinel_mode && configfile && *configfile == '-') {
             serverLog(LL_WARNING,
                 "Sentinel config from STDIN not allowed.");
+            //哨兵模式不允许从std加载配置
+
             serverLog(LL_WARNING,
                 "Sentinel needs config file on disk to save state.  Exiting...");
+            /*哨兵模式需要磁盘配置文件保存状态*/
             exit(1);
         }
         resetServerSaveParams();
@@ -5148,6 +5202,8 @@ int main(int argc, char **argv) {
     server.supervised = redisIsSupervised(server.supervised_mode);
     /* 后台条件是 daemonize 且没有被监督 */
     int background = server.daemonize && !server.supervised;
+
+    //后台模式
     if (background) daemonize();
 
     /* 内部会创建事件 */
@@ -5199,6 +5255,7 @@ int main(int argc, char **argv) {
         sentinelIsRunning();
     }
 
+    /**/
     /* Warning the user about suspicious maxmemory setting. */
     if (server.maxmemory > 0 && server.maxmemory < 1024*1024) {
         serverLog(LL_WARNING,"WARNING: You specified a maxmemory value that is less than 1MB (current value is %llu bytes). Are you sure this is what you really want?", server.maxmemory);

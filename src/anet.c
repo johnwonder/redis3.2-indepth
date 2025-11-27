@@ -111,6 +111,7 @@ int anetKeepAlive(char *err, int fd, int interval)
     int val = 1;
 
     /*
+    https://blog.csdn.net/lxadccs/article/details/148905282
     https://blog.csdn.net/m0_46376834/article/details/132029583
     当 SO_KEEPALIVE 被设置为非零值时，表示启用 keepalive 机制。
     keepalive 是一种用于检测连接是否仍然有效的机制。通过定期发送一些特定的探测数据，可以检测到网络连接的异常中断或对端应用程序的崩溃退出。
@@ -132,7 +133,7 @@ int anetKeepAlive(char *err, int fd, int interval)
         anetSetError(err, "setsockopt SO_KEEPALIVE: %s", strerror(errno));
         return ANET_ERR;
     }
-
+    //https://developer.aliyun.com/article/757742
 #ifdef __linux__
     /* Default settings are more or less garbage, with the keepalive time
      * set to 7200 by default on Linux. Modify settings to make the feature

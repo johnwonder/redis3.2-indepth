@@ -627,6 +627,9 @@ void rpoplpushCommand(client *c) {
  * Blocking POP operations
  *----------------------------------------------------------------------------*/
 
+/*
+
+*/
 /* This is how the current blocking POP works, we use BLPOP as example:
  * - If the user calls BLPOP and the key exists and contains a non empty list
  *   then LPOP is called instead. So BLPOP is semantically the same as LPOP
@@ -687,6 +690,7 @@ void blockForKeys(client *c, robj **keys, int numkeys, mstime_t timeout, robj *t
     blockClient(c,BLOCKED_LIST);
 }
 
+/* 解除等待操作中的客户端的阻塞  */
 /* Unblock a client that's waiting in a blocking operation such as BLPOP.
  * You should never call this function directly, but unblockClient() instead. */
 void unblockClientWaitingData(client *c) {
@@ -697,13 +701,20 @@ void unblockClientWaitingData(client *c) {
     serverAssertWithInfo(c,NULL,dictSize(c->bpop.keys) != 0);
     //取出当前客户端想要pop的所有key
     di = dictGetIterator(c->bpop.keys);
+
+    /*客户端可能等待多个key,为每个key解除阻塞*/
     /* The client may wait for multiple keys, so unblock it for every key. */
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
 
+        /*
+          blocking_keys 这个字典里的值是客户端列表
+        */
         /* Remove this client from the list of clients waiting for this key. */
         l = dictFetchValue(c->db->blocking_keys,key);
         serverAssertWithInfo(c,key,l != NULL);
+
+        /*删除客户端这个节点*/
         listDelNode(l,listSearchKey(l,c));
         /* If the list is empty we need to remove it to avoid wasting memory */
         if (listLength(l) == 0)
@@ -733,35 +744,48 @@ void unblockClientWaitingData(client *c) {
 void signalListAsReady(redisDb *db, robj *key) {
     readyList *rl;
 
+    /*没有客户端阻塞，没有需要放入队列*/
     /* No clients blocking for this key? No need to queue it. */
     if (dictFind(db->blocking_keys,key) == NULL) return;
 
+    /*判断key是否在ready_keys中了*/
     /* Key was already signaled? No need to queue it again. */
     if (dictFind(db->ready_keys,key) != NULL) return;
 
+    /*分配readylist*/
     /* Ok, we need to queue this key into server.ready_keys. */
     rl = zmalloc(sizeof(*rl));
     rl->key = key;
     rl->db = db;
+
+    /*增加key的引用计数*/
     incrRefCount(key);
-    //添加到ready_keys末尾
+    //添加到server->ready_keys末尾
     //handleClientsBlockedOnLists 函数中会使用
     listAddNodeTail(server.ready_keys,rl);
 
+    /* 添加到db->ready_keys字典中 */
     /* We also add the key in the db->ready_keys dictionary in order
      * to avoid adding it multiple times into a list with a simple O(1)
      * check. */
     incrRefCount(key);
+
+    //添加key到db->ready_keys中
     serverAssert(dictAdd(db->ready_keys,key,NULL) == DICT_OK);
 }
 
+/*
+  它的工作是服务特定的客户端
+*/
 /* This is a helper function for handleClientsBlockedOnLists(). It's work
  * is to serve a specific client (receiver) that is blocked on 'key'
  * in the context of the specified 'db', doing the following:
  *
- * 1) Provide the client with the 'value' element.
+ * 1) Provide the client with the 'value' element. 提供带value元素的客户端
  * 2) If the dstkey is not NULL (we are serving a BRPOPLPUSH) also push the
  *    'value' element on the destination list (the LPUSH side of the command).
+ * 
+ * 
  * 3) Propagate the resulting BRPOP, BLPOP and additional LPUSH if any into
  *    the AOF and replication channel.
  *
@@ -845,6 +869,8 @@ void handleClientsBlockedOnLists(void) {
         /*
          局部保存当前的ready_keys
 
+         signalListAsReady中会判断key是否在ready_keys字典中了
+
          这样，当我们运行旧的列表时，我们可以自由地调用signalListAsReady()，
          在处理阻塞到BRPOPLPUSH的客户端时它可以将新元素推入server.ready_keys。
         */
@@ -879,10 +905,13 @@ void handleClientsBlockedOnLists(void) {
                  * this key, from the first blocked to the last. */
                 de = dictFind(rl->db->blocking_keys,rl->key);
                 if (de) {
-                    //获取客户端列表
+                    //获取字典里的客户端列表
                     list *clients = dictGetVal(de);
+
+                    //客户端数量
                     int numclients = listLength(clients);
 
+                    //循环每个客户端
                     while(numclients--) {
                         //找到一个客户端就pop一个
                         listNode *clientnode = listFirst(clients);
@@ -899,7 +928,10 @@ void handleClientsBlockedOnLists(void) {
                             /* Protect receiver->bpop.target, that will be
                              * freed by the next unblockClient()
                              * call. */
-                            if (dstkey) incrRefCount(dstkey);
+                            /*保护receiver->bpop.target*/
+                            if (dstkey) incrRefCount(dstkey); //增加引用计数
+
+
                             unblockClient(receiver);
 
                             if (serveClientBlockedOnList(receiver,

@@ -51,6 +51,14 @@ robj *createObject(int type, void *ptr) {
         lru 字段存储 ‌最近一次访问的时间戳‌ 或 ‌访问频率信息‌（取决于淘汰策略），用于判定对象的“热度”
     */
     /* Set the LRU to the current lruclock (minutes resolution). */
+
+    /*
+       如果当前是 返回 1001秒
+       
+
+       要到 1010秒 需要经过多少时间
+    
+    */
     o->lru = LRU_CLOCK();
     return o;
 }
@@ -389,11 +397,12 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
         if (llval) *llval = (long) o->ptr;
         return C_OK;
     } else {
+
         return string2ll(o->ptr,sdslen(o->ptr),llval) ? C_OK : C_ERR;
     }
 }
 
-/*尝试编码string对象 去节省空间*/
+/*尝试编码string对象节省空间*/
 /* Try to encode a string object in order to save space */
 robj *tryObjectEncoding(robj *o) {
     long value;
@@ -420,7 +429,9 @@ robj *tryObjectEncoding(robj *o) {
      * in represented by an actually array of chars. */
     if (!sdsEncodedObject(o)) return o;
 
-    /* 对共享对象进行编码是不安全的：共享对象可以在Redis的“对象空间”中随处共享，并可能在他们没有被处理时结束。
+    /* 
+       对共享对象进行编码是不安全的：
+       共享对象可以在Redis的“对象空间”中随处共享，并可能在他们没有被处理时结束。
         我们仅将其作为键空间中的值处理 
      */
     /*o->refcount > 1 说明已经是共享对象了 共享对象就不再编码了*/
@@ -451,6 +462,8 @@ robj *tryObjectEncoding(robj *o) {
         ‌最大字符串长度：20字符
     */
     //如果字符串长度小于等于20 且是数字
+
+
     if (len <= 20 && string2l(s,len,&value)) {
         //此对象可作为长代码进行编码。尝试使用共享对象。
         //注意，当使用maxmemory时，我们避免使用共享整数，
@@ -465,13 +478,28 @@ robj *tryObjectEncoding(robj *o) {
             value >= 0 &&
             value < OBJ_SHARED_INTEGERS)
         {
+            //值要小于10000
+
             //value要小于10000
             decrRefCount(o);//释放当前对象
             //共享整数增加引用计数
             incrRefCount(shared.integers[value]);
+
+         
+            //返回共享变量
             return shared.integers[value];
         } else {
+
+            //大于10000
+            //到这里o->ptr已经是数字了
+
+            //如果还是raw 就释放sds
+            //哦 判断raw说明还是刚创建的？？
+            //因为这里有可能是EMBSTR 对象，跟append命令也有关系
             if (o->encoding == OBJ_ENCODING_RAW) sdsfree(o->ptr);
+
+            //编码为int类型
+            //
             o->encoding = OBJ_ENCODING_INT;
             //用void*来  保证局部变量不被回收
             o->ptr = (void*) value;
@@ -494,6 +522,8 @@ robj *tryObjectEncoding(robj *o) {
         robj *emb;
         //已经是embstr了 就直接返回
         if (o->encoding == OBJ_ENCODING_EMBSTR) return o;
+
+        //内部编码为OBJ_ENCODING_EMBSTR
         emb = createEmbeddedStringObject(s,sdslen(s));
 
         //降低o的引用计数，释放原来的robj
@@ -522,11 +552,16 @@ robj *tryObjectEncoding(robj *o) {
         o->ptr = sdsRemoveFreeSpace(o->ptr);
     }
 
+    //返回原始对象
     /* Return the original object. */
     return o;
 }
 
-/* Get a decoded version of an encoded object (returned as a new object).
+/* 
+
+    获取已编码对象的解码版本（作为新对象返回）。
+    如果对象已经是原始编码的，只需增加ref计数。
+    Get a decoded version of an encoded object (returned as a new object).
  * If the object is already raw-encoded just increment the ref count. */
 robj *getDecodedObject(robj *o) {
     robj *dec;
@@ -538,6 +573,8 @@ robj *getDecodedObject(robj *o) {
     }
     //整数编码 但是是字符串类型
     if (o->type == OBJ_STRING && o->encoding == OBJ_ENCODING_INT) {
+
+        //建立一个buf局部变量
         char buf[32];
 
         ll2string(buf,32,(long)o->ptr);
@@ -806,6 +843,10 @@ char *strEncoding(int encoding) {
  * requested, using an approximated LRU algorithm. */
 unsigned long long estimateObjectIdleTime(robj *o) {
     unsigned long long lruclock = LRU_CLOCK();
+
+    //服务器时钟 大于 对象时钟 那么就直接使用 没有回绕
+    //服务器时钟  默认1000毫秒会更新一次值
+    //服务器时钟是返回当前 多少秒
     if (lruclock >= o->lru) {
         return (lruclock - o->lru) * LRU_CLOCK_RESOLUTION;
     } else {

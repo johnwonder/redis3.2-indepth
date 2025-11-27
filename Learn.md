@@ -1,3 +1,20 @@
+1:Redis的五种数据类型是由什么数据结构实现的？
+2:Redis的字符串数据类型既可以存储字符串（比如"hello world"),又可以存储整数和
+  浮点数（比如10086和3.14),甚至是二进制位（使用setbit等命令），Redis在内部是怎么存储这些值的？
+3：Redis的一部分命令只能对特定数据类型执行（比如APPEND只能对字符串执行，HSET只能对哈希表执行），
+   而另一部分命令却可以对所有数据类型执行（比如DEL,TYPE和EXPIRE),不同的命令在执行时是如何进行类型检查的？
+   Redis在内部是否实现了一个类型系统？
+4：Redis的数据库是怎样存储各种不同数据类型的键值对的？数据库里面的过期键又是怎样实现自动删除的？
+5：除了数据库之外，Redis还拥有发布与订阅，脚本，事务等特性，这些特性又是如何实现的？
+6：Redis使用什么模型或者模式来处理客户端的命令请求？一条命令请求从发送到返回需要经过什么步骤？
+
+二进制位操作(bitop),排序，复制，Sentinel和集群等主题，
+内部机制（数据库实现，类型系统，事件模型），
+单机特性（事务，持久化，Lua脚本，排序，二进制位操作）
+多机特性（复制，Sentinel和集群）。
+
+
+
 第一阶段阅读Redis的数据结构部分，基本位于如下文件中：内存分配 zmalloc.c和zmalloc.h动态字符串 sds.h和sds.c双端链表 adlist.c和adlist.h字典 dict.h和dict.c跳跃表 server.h文件里面关于zskiplist结构和zskiplistNode结构，以及t_zset.c中所有zsl开头的函数，比如 zslCreate、zslInsert、zslDeleteNode等等。基数统计 hyperloglog.c 中的 hllhdr 结构， 以及所有以 hll 开头的函数
 
 

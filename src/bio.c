@@ -61,6 +61,21 @@
 #include "server.h"
 #include "bio.h"
 
+/*
+   redis的 BIO( Background I/O) 是Redis内置的后台异步任务处理机制，核心作用是：
+   将耗时的I/O操作或计算任务从redis主线程中剥离，放到独立的后台线程执行，避免主线程
+   阻塞，保证redis作为高性能内存数据库的响应速度。
+
+   redis主线程是单线程模型（核心网络I/O 和命令执行是单线程),如果直接在主线程中执行以下操作，
+   会导致主线程阻塞（无法处理新的客户端请求）：
+
+   1.大文件I/O (如RDB持久化的文件写入，AOF日志的刷盘);
+   2.耗时的删除操作（入UNLINK异步删除大键，过期键的惰性删除补充）。
+   3.其他耗时计算（如集群节点的自动重连，数据同步的准备工作）。
+
+*/
+
+
 static pthread_t bio_threads[BIO_NUM_OPS];
 static pthread_mutex_t bio_mutex[BIO_NUM_OPS];
 static pthread_cond_t bio_condvar[BIO_NUM_OPS];
@@ -85,8 +100,8 @@ struct bio_job {
 void *bioProcessBackgroundJobs(void *arg);
 
 /* Make sure we have enough stack to perform all the things we do in the
- * main thread. */
-#define REDIS_THREAD_STACK_SIZE (1024*1024*4)
+ * main thread.  4MB 1kb是1024个字节*/
+#define REDIS_THREAD_STACK_SIZE (1024*1024*4) 
 
 /*初始化后台系统，生成线程*/
 /* Initialize the background system, spawning the thread. */
@@ -117,6 +132,8 @@ void bioInit(void) {
     /* Ready to spawn our threads. We use the single argument the thread
      * function accepts in order to pass the job ID the thread is
      * responsible of. */
+
+    /*根据操作类型的数量 生成同等数量的线程*/
     for (j = 0; j < BIO_NUM_OPS; j++) {
         //BIO_NUM_OPS =2
         void *arg = (void*)(unsigned long) j;
@@ -128,6 +145,9 @@ void bioInit(void) {
     }
 }
 
+/*
+  创建后台任务
+*/
 void bioCreateBackgroundJob(int type, void *arg1, void *arg2, void *arg3) {
     struct bio_job *job = zmalloc(sizeof(*job));
 
@@ -135,10 +155,23 @@ void bioCreateBackgroundJob(int type, void *arg1, void *arg2, void *arg3) {
     job->arg1 = arg1;
     job->arg2 = arg2;
     job->arg3 = arg3;
+
+    /*锁下当前这个类型的bio_mutex*/
     pthread_mutex_lock(&bio_mutex[type]);
+
+    /*添加到此类任务 列表的最后*/
     listAddNodeTail(bio_jobs[type],job);
+    /*增加待处理任务*/
     bio_pending[type]++;
+    /*
+      //这篇文章讲到了pthread_cond_signal最好在lock和unlock 之间
+      https://www.cnblogs.com/blj28/p/17970335
+      是 Linux/Unix 系统中 POSIX 线程库的标准函数，
+      作用是唤醒等待在某个条件变量上的一个线程（如果有多个线程等待，通常唤醒优先级最高或等待最久的一个）；
+    */
     pthread_cond_signal(&bio_condvar[type]);
+
+    /*可以解锁了*/
     pthread_mutex_unlock(&bio_mutex[type]);
 }
 
@@ -147,6 +180,7 @@ void *bioProcessBackgroundJobs(void *arg) {
     unsigned long type = (unsigned long) arg;
     sigset_t sigset;
 
+    /*判断参数 是否在操作数类型里面*/
     /* Check that the type is within the right interval. */
     if (type >= BIO_NUM_OPS) {
         serverLog(LL_WARNING,
@@ -176,9 +210,22 @@ void *bioProcessBackgroundJobs(void *arg) {
         */
         /* The loop always starts with the lock hold. */
         if (listLength(bio_jobs[type]) == 0) {
+            /*
+             这句话是 Redis BIO 机制中 后台线程 “等待任务” 的核心语句，
+             基于 POSIX 线程库（pthread）实现，核心作用是：让对应类型的 BIO 后台线程 “休眠等待”，
+             直到主线程发送 “有新任务” 的信号（pthread_cond_signal），同时自动管理互斥锁，保证线程安全。
+            
+             第一个参数：条件变量（等待的“信号源”）
+             第二个参数：互斥锁（保证任务队列操作的线程安全）
+
+             核心作用：pthread_cond_wait 会自动管理这个锁 —— 
+             线程休眠时释放锁，被唤醒后重新获取锁，避免 “线程休眠时占用锁导致主线程无法提交任务” 的死锁问题。
+            */
             pthread_cond_wait(&bio_condvar[type],&bio_mutex[type]);
             continue;
         }
+
+        /*从bio_jobs[type]列表中拿出第一个*/
         /* Pop the job from the queue. */
         ln = listFirst(bio_jobs[type]);
         job = ln->value;
@@ -186,6 +233,7 @@ void *bioProcessBackgroundJobs(void *arg) {
          * a stand alone job structure to process.*/
         pthread_mutex_unlock(&bio_mutex[type]);
 
+        /*根据作业的类型处理作业*/
         /* Process the job accordingly to its type. */
         if (type == BIO_CLOSE_FILE) {
             close((long)job->arg1);
@@ -203,6 +251,8 @@ void *bioProcessBackgroundJobs(void *arg) {
         /* Lock again before reiterating the loop, if there are no longer
          * jobs to process we'll block again in pthread_cond_wait(). */
         pthread_mutex_lock(&bio_mutex[type]);
+
+        /*删除ln这个节点*/
         listDelNode(bio_jobs[type],ln);
         bio_pending[type]--;
     }

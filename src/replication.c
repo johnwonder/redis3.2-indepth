@@ -167,6 +167,9 @@ void feedReplicationBacklog(void *ptr, size_t len) {
 
     server.master_repl_offset += len;
 
+    /*
+     这是一个循环缓冲区，因此在每次迭代中写入尽可能多的数据，并在达到极限时倒回“idx”索引
+    */
     /* This is a circular buffer, so write as much data we can at every
      * iteration and rewind the "idx" index if we reach the limit. */
     while(len) {
@@ -178,7 +181,10 @@ void feedReplicationBacklog(void *ptr, size_t len) {
         //当索引等于整个队列的大小时，重新从0开始
         if (server.repl_backlog_idx == server.repl_backlog_size)
             server.repl_backlog_idx = 0;
+
+        /*剩余需要发送的长度*/
         len -= thislen;
+        /*数据指针移动到thislen后面*/
         p += thislen;
         //实际的数据长度
         server.repl_backlog_histlen += thislen;
@@ -193,6 +199,10 @@ void feedReplicationBacklog(void *ptr, size_t len) {
                               server.repl_backlog_histlen + 1;
 }
 
+
+/*
+  feedReplicationBacklog（）的包装器，它接受Redis字符串对象作为输入
+*/
 /* Wrapper for feedReplicationBacklog() that takes Redis string objects
  * as input. */
 void feedReplicationBacklogWithObject(robj *o) {
@@ -530,6 +540,8 @@ int masterTryPartialResynchronization(client *c) {
         freeClientAsync(c);
         return C_OK;
     }
+
+    /*部分重同步*/
     psync_len = addReplyReplicationBacklog(c,psync_offset);
     serverLog(LL_NOTICE,
         "Partial resynchronization request from %s accepted. Sending %lld bytes of backlog starting from offset %lld.",
@@ -1083,6 +1095,7 @@ void replicationEmptyDbCallback(void *privdata) {
  * at server.master, starting from the specified file descriptor. */
 void replicationCreateMasterClient(int fd) {
     //创建一个client ,才会接收readQueryFromClient 所以之后在调用readQueryFromClient的时候可以识别为Master的输入
+    //因为readQueryFromClient 是在 createClient里创建的
     server.master = createClient(fd);
     //标记这个client为Master
     server.master->flags |= CLIENT_MASTER;

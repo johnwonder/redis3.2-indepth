@@ -118,6 +118,13 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
             if (fe->mask & AE_READABLE && FD_ISSET(j,&state->_rfds))
                 mask |= AE_READABLE;
             //判断fe是否是写事件 而且 当前fd是否可以写
+            //https://pubs.opengroup.org/onlinepubs/9799919799/
+            /*
+             If the writefds argument is not a null pointer, 
+             it points to an object of type fd_set that on input specifies the file descriptors 
+             to be checked for being ready to write,
+              and on output indicates which file descriptors are ready to write.
+            */
             if (fe->mask & AE_WRITABLE && FD_ISSET(j,&state->_wfds))
                 mask |= AE_WRITABLE;
             //numevents从0开始

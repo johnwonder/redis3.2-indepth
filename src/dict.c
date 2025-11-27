@@ -508,7 +508,8 @@ static int dictGenericDelete(dict *d, const void *key, int nofree)
                     d->ht[table].table[idx] = he->next;
                 if (!nofree) {
                     //释放键和值
-                    dictFreeKey(d, he);
+                    //根据dict的Type对应的析构函数
+                    dictFreeKey(d, he); //dictSdsDestructor  initServer的时候 server.db[j].dict = dictCreate(&dbDictType,NULL);
                     dictFreeVal(d, he);
                 }
                 zfree(he);
@@ -573,6 +574,7 @@ dictEntry *dictFind(dict *d, const void *key)
     dictEntry *he;
     unsigned int h, idx, table;
 
+    //两字典的used数量加起来都是0 那么返回
     if (d->ht[0].used + d->ht[1].used == 0) return NULL; /* dict is empty */
     //如果正在rehash 那就开始rehash
     if (dictIsRehashing(d)) _dictRehashStep(d);
