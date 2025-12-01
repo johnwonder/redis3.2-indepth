@@ -773,13 +773,14 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
         ip != NULL)
     {
         //既不等于127.0.0.1 又不等于::1
+        //和strcasecmp的区别 strcasecmp不区分大小写
         if (strcmp(ip,"127.0.0.1") && strcmp(ip,"::1")) {
             //阻止redis运行在保护模式下是因为保护模式开启了，没有指定绑定地址，没有验证密码给到客户端。
             //在这种模式下连接只会被回环接口接受
 
             //如果你想从外部电脑连接到redis 你可以适配以下方案中的一个
             //1. 从同一个host连接redis服务器 发送CONFIG SET protected-mode no 禁用保护模式
-            // 确保redis不能从外网访问。使用config rewrite 使这个配置永久
+            // 但是请确保redis不能从外网访问。可以使用config rewrite 使这个配置永久
 
             //2. 或者你可以通过编辑Redis配置文件禁用保护模式，并将保护模式选项设置为“no”，然后重新启动服务器
 
@@ -1675,6 +1676,8 @@ void processInputBuffer(client *c) {
         if (!c->reqtype) {
             //当第一个字符是* 时 就代表是MULTIBULK
             if (c->querybuf[0] == '*') {
+
+                //set命令也是*$3\r\nSET\r\n$8\r\ntestZero\r\n$1\r\n\0\r\n 
                 c->reqtype = PROTO_REQ_MULTIBULK;
             } else {
                 //没有*号代表内联命令

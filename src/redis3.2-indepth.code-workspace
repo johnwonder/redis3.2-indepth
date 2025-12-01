@@ -23,6 +23,12 @@
 		},
 		{
 			"path": "../../cproject/redis8.0.2"
+		},
+		{
+			"path": "../../cproject/redis6.2.18"
+		},
+		{
+			"path": "../../cproject/redis5.0.14"
 		}
 	],
 	"settings": {
@@ -147,7 +153,8 @@
 			"stdio.h": "c",
 			"stdlib.h": "c",
 			"time.h": "c",
-			"solarisfixes.h": "c"
+			"solarisfixes.h": "c",
+			"structa.h": "c"
 		},
 		"makefile.configureOnOpen": true
 	}

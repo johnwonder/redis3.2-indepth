@@ -439,6 +439,7 @@ void serverLog(int level, const char *fmt, ...) {
     va_list ap;
     char msg[LOG_MAX_LEN];
 
+    //server.verbosity 的默认是LL_NOTICE 2 比debug 和verbose大
     //&0xff 的主要作用是取得一个数的低八位数据‌。
 
     //具体来说，& 表示按位与操作，0x 代表 16 进制数，0xff 表示的数在二进制中为 1111 1111，占一个字节。
@@ -965,7 +966,8 @@ void activeExpireCycle(int type) {
     //类型为1也就是快速过期的时候才会进入
     if (type == ACTIVE_EXPIRE_CYCLE_FAST) {
 
-        /*如果上一个周期没有在规定时间内退出 那就不开始*/
+        /*如果上一个周期没有因为时间限制退出 那就不开始*/
+        //同样，不要在与快速循环总持续时间相同的时间段内重复快速循环
         /* Don't start a fast cycle if the previous cycle did not exited
          * for time limt. Also don't repeat a fast cycle for the same period
          * as the fast cycle total duration itself. */
@@ -989,8 +991,9 @@ void activeExpireCycle(int type) {
      * expired keys to use memory for too much time. 
      * 如果上次我们达到了时间限制，我们希望在这个迭代中扫描所有DB，因为在某些DB中有工作要做，我们不希望过期的键占用内存太长时间
      * */
+    /*配置的数据库数量 大于16的话 如果 之前达到了时间限制退出的话 此次还是用配置的数据库数量来*/
     if (dbs_per_call > server.dbnum || timelimit_exit)
-        dbs_per_call = server.dbnum;//调用就是数据库数量
+        dbs_per_call = server.dbnum;//调用就是实际数据库数量 配置的数据库数量有可能小于16的
 
     /* We can use at max ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC percentage of CPU time
      * per iteration. Since this function gets called with a frequency of
@@ -1601,7 +1604,14 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             }
          }
 
+         /*如果需要，触发AOF重写*/
          /* Trigger an AOF rewrite if needed */
+         /*8.0 增加了 !hasActiveChildProcess() 判断*/
+         /*
+          int hasActiveChildProcess(void) {
+                return server.child_pid != -1;
+            }
+         */
          if (server.rdb_child_pid == -1 &&
              server.aof_child_pid == -1 &&
              server.aof_rewrite_perc &&
@@ -1610,6 +1620,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             long long base = server.aof_rewrite_base_size ?
                             server.aof_rewrite_base_size : 1;
             long long growth = (server.aof_current_size*100/base) - 100;
+
+            /*8.0增加了 && !aofRewriteLimited()*/
             if (growth >= server.aof_rewrite_perc) {
                 serverLog(LL_NOTICE,"Starting automatic rewriting of AOF on %lld%% growth",growth);
                 rewriteAppendOnlyFileBackground();
@@ -1694,6 +1706,11 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     return 1000/server.hz;
 }
 
+/*
+  每次redis在进入事件驱动库的主循环时被调用，就是在为了准备好文件描述符的睡眠的时候
+
+  也就是说，在为已准备的文件描述符休眠之前
+*/
 /* This function gets called every time Redis is entering the
  * main loop of the event driven library, that is, before to sleep
  * for ready file descriptors. */
@@ -2009,13 +2026,13 @@ void initServerConfig(void) {
     server.master_repl_offset = 0;
 
     /* 主从复制  部分从同步 */
-    // 复制部分重新同步积压
+    // 复制 部分重新同步积压
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;
-    server.repl_backlog_size = CONFIG_DEFAULT_REPL_BACKLOG_SIZE;
+    server.repl_backlog_size = CONFIG_DEFAULT_REPL_BACKLOG_SIZE; //1mb
     server.repl_backlog_histlen = 0;
-    server.repl_backlog_idx = 0;
-    server.repl_backlog_off = 0;
+    server.repl_backlog_idx = 0; //环形缓冲区的当前偏移
+    server.repl_backlog_off = 0;  
     server.repl_backlog_time_limit = CONFIG_DEFAULT_REPL_BACKLOG_TIME_LIMIT;
     server.repl_no_slaves_since = time(NULL);
 
@@ -2053,6 +2070,8 @@ void initServerConfig(void) {
     server.expireCommand = lookupCommandByCString("expire");
     server.pexpireCommand = lookupCommandByCString("pexpire");
 
+
+    /*慢日志*/
     /* Slow log */
     server.slowlog_log_slower_than = CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN;
     server.slowlog_max_len = CONFIG_DEFAULT_SLOWLOG_MAX_LEN; //128
@@ -2879,9 +2898,14 @@ void call(client *c, int flags) {
     /* Log the command into the Slow log if needed, and populate the
      * per-command statistics that we show in INFO commandstats. */
     if (flags & CMD_CALL_SLOWLOG && c->cmd->proc != execCommand) {
+
+        //ping命令会进入此处
+        //serverLog(LL_WARNING,"slowlog call %s",c->cmd->name);
         char *latency_event = (c->cmd->flags & CMD_FAST) ?
                               "fast-command" : "command";
         latencyAddSampleIfNeeded(latency_event,duration/1000);
+
+        /*把命令的持续时间 放入slowlog*/
         slowlogPushEntryIfNeeded(c->argv,c->argc,duration);
     }
     if (flags & CMD_CALL_STATS) {
@@ -3235,6 +3259,7 @@ int processCommand(client *c) {
     } else {
         // 真正调用命令
         // 传了CMD_CALL_FULL  = CMD_CALL_SLOWLOG | CMD_CALL_STATS | CMD_CALL_PROPAGATE
+        // 带慢日志
         call(c,CMD_CALL_FULL);
         //更新全局复制偏移
         c->woff = server.master_repl_offset; //全局复制offset

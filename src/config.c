@@ -133,7 +133,7 @@ const char *evictPolicyToString(void) {
 /*-----------------------------------------------------------------------------
  * Config file parsing
  *----------------------------------------------------------------------------*/
-
+/*搞了半天 我以为c有yesnotoi函数呢*/
 int yesnotoi(char *s) {
     if (!strcasecmp(s,"yes")) return 1;
     else if (!strcasecmp(s,"no")) return 0;
@@ -306,6 +306,8 @@ void loadServerConfigFromString(char *config) {
                 err = "Invalid number of databases"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"include") && argc == 2) {
+
+            /*根据配置的文件路径加载配置*/
             loadServerConfig(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"maxclients") && argc == 2) {
             server.maxclients = atoi(argv[1]);

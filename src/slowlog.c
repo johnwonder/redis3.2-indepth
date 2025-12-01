@@ -110,11 +110,17 @@ void slowlogInit(void) {
 /* Push a new entry into the slow log.
  * This function will make sure to trim the slow log accordingly to the
  * configured max length. */
+/*
+  将一个新条目推入慢速日志。此函数将确保根据配置的最大长度修剪慢日志
+*/
 void slowlogPushEntryIfNeeded(robj **argv, int argc, long long duration) {
+
+    /*判断*/
     if (server.slowlog_log_slower_than < 0) return; /* Slowlog disabled */
     if (duration >= server.slowlog_log_slower_than)
         listAddNodeHead(server.slowlog,slowlogCreateEntry(argv,argc,duration));
 
+    /*如果需要 就移除老的条目*/
     /* Remove old entries if needed. */
     while (listLength(server.slowlog) > server.slowlog_max_len)
         listDelNode(server.slowlog,listLast(server.slowlog));

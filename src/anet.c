@@ -111,6 +111,7 @@ int anetKeepAlive(char *err, int fd, int interval)
     int val = 1;
 
     /*
+    https://strikefreedom.top/archives/tcp-keepalive-principles-and-applications-on-unix-and-windows#user-content-fn-16
     https://blog.csdn.net/lxadccs/article/details/148905282
     https://blog.csdn.net/m0_46376834/article/details/132029583
     当 SO_KEEPALIVE 被设置为非零值时，表示启用 keepalive 机制。
@@ -141,6 +142,7 @@ int anetKeepAlive(char *err, int fd, int interval)
 
     /* Send first probe after interval. */
     val = interval;
+    //发送第一个保活嗅探报文之前 TCP 连接保持空闲的时长，也就是 TCP 标准里的嗅探报文的发送间隔时间。单位是秒，默认值是 2 小时。
     if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &val, sizeof(val)) < 0) {
         anetSetError(err, "setsockopt TCP_KEEPIDLE: %s\n", strerror(errno));
         return ANET_ERR;
@@ -149,6 +151,7 @@ int anetKeepAlive(char *err, int fd, int interval)
     /* Send next probes after the specified interval. Note that we set the
      * delay as interval / 3, as we send three probes before detecting
      * an error (see the next setsockopt call). */
+    //第一个保活嗅探报文没有收到对端响应之后，继续发送嗅探报文的间隔时间。单位是秒，默认值是 75 秒。
     val = interval/3;
     if (val == 0) val = 1;
     if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &val, sizeof(val)) < 0) {
@@ -158,6 +161,7 @@ int anetKeepAlive(char *err, int fd, int interval)
 
     /* Consider the socket in error state after three we send three ACK
      * probes without getting a reply. */
+    //第一个保活嗅探报文没有收到对端响应之后，继续发送嗅探报文的次数。默认值是 9。
     val = 3;
     if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &val, sizeof(val)) < 0) {
         anetSetError(err, "setsockopt TCP_KEEPCNT: %s\n", strerror(errno));
