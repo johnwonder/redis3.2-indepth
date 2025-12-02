@@ -165,6 +165,9 @@ all: $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCH
 # Deps (use make dep to generate this)
 include Makefile.dep
 
+# 扫描所有 .c 源文件，分析其中的 #include 指令
+# 输出每个目标文件(.o)所依赖的所有头文件(.h)
+# 自动排除系统头文件（如 stdio.h、stdlib.h 等），只包含用户自定义的头文件
 dep:
 	$(REDIS_CC) -MM *.c > Makefile.dep
 

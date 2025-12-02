@@ -1587,6 +1587,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
          for (j = 0; j < server.saveparamslen; j++) {
             struct saveparam *sp = server.saveparams+j;
 
+            /*如果我们达到变化的总量，总的时间，且 最后一次保存成功 或者 最后一次尝试的保存的时间 已经超过5秒*/
             /* Save if we reached the given amount of changes,
              * the given amount of seconds, and if the latest bgsave was
              * successful or if, in case of an error, at least
@@ -3128,6 +3129,8 @@ int processCommand(client *c) {
         当前是主服务
         且持久化有问题时不接受写入命令 或者ping命令
         //rdb 或者aof
+
+        //前提是saveparamslen 必须大于0
     */
     /* Don't accept write commands if there are problems persisting on disk
      * and if this is a master instance. */
@@ -4807,6 +4810,8 @@ void redisSetProcTitle(char *title) {
  */
 
 int redisSupervisedUpstart(void) {
+
+    //UPSTART_JOB 是一个环境变量，用于标识当前进程是由 Upstart 初始化系统启动的作业（Job）
     const char *upstart_job = getenv("UPSTART_JOB");
 
     if (!upstart_job) {
@@ -4816,12 +4821,20 @@ int redisSupervisedUpstart(void) {
     }
 
     serverLog(LL_NOTICE, "supervised by upstart, will stop to signal readiness");
+    /*执行该语句后，进程会进入停止状态（T状态），直到收到SIGCONT信号才会继续执行*/
     raise(SIGSTOP);
     unsetenv("UPSTART_JOB");
     return 1;
 }
 
 int redisSupervisedSystemd(void) {
+
+    /*
+     如果你的程序需要与 systemd 集成，可以使用 sd_notify() 函数来简化通知操作，它会自动处理 NOTIFY_SOCKET 的通信细节。
+    */
+   /*
+     getenv("NOTIFY_SOCKET") 用于获取一个由 systemd 设置的特殊环境变量，其值是一个 Unix 域套接字的文件路径（例如 /run/systemd/notify）
+    */
     const char *notify_socket = getenv("NOTIFY_SOCKET");
     int fd = 1;
     struct sockaddr_un su;
@@ -4840,6 +4853,16 @@ int redisSupervisedSystemd(void) {
     }
 
     serverLog(LL_NOTICE, "supervised by systemd, will signal readiness");
+
+    //udp协议
+    //https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/sys_socket.h.html
+    /*
+     If the protocol argument is non-zero, 
+     it shall specify a protocol that is supported by the address family. 
+     If the protocol argument is zero, the default protocol for this address family and type shall be used. 
+     The protocols supported by the system are implementation-defined.
+    */
+    /*使用默认协议 比如UDP*/
     if ((fd = socket(AF_UNIX, SOCK_DGRAM, 0)) == -1) {
         serverLog(LL_WARNING,
                 "Can't connect to systemd socket %s", notify_socket);
@@ -4848,6 +4871,8 @@ int redisSupervisedSystemd(void) {
 
     memset(&su, 0, sizeof(su));
     su.sun_family = AF_UNIX;
+
+    //拷贝地址
     strncpy (su.sun_path, notify_socket, sizeof(su.sun_path) -1);
     su.sun_path[sizeof(su.sun_path) - 1] = '\0';
 
@@ -5223,6 +5248,8 @@ int main(int argc, char **argv) {
     }
 
     /*判断是否是监督*/
+    /*https://oneindex.joshua.su/e41fbc6c7f3f*/
+    /*https://0pointer.de/blog/projects/socket-activation.html*/
     /*Supervisor是在linux上的进程管理员,是一个管理工具。当进程停止的时候Supervisor能够自动启动它*/
     server.supervised = redisIsSupervised(server.supervised_mode);
     /* 后台条件是 daemonize 且没有被监督 */

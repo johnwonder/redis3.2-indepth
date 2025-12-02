@@ -11,4 +11,5 @@ default: all
 install:
 	cd src && $(MAKE) $@
 
+# .PHONY: install 声明 install 为伪目标，确保即使存在同名文件也会执行该规则
 .PHONY: install

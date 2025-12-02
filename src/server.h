@@ -315,7 +315,7 @@ typedef long long mstime_t; /* millisecond time type. */
 /* --- 握手状态 Handshake states, must be ordered --- */
 #define REPL_STATE_RECEIVE_PONG 3 /* Wait for PING reply */
 #define REPL_STATE_SEND_AUTH 4 /* Send AUTH to master */
-#define REPL_STATE_RECEIVE_AUTH 5 /* Wait for AUTH reply */
+#define REPL_STATE_RECEIVE_AUTH 5 /* 等待验证回复 Wait for AUTH reply */
 #define REPL_STATE_SEND_PORT 6 /* Send REPLCONF listening-port */
 #define REPL_STATE_RECEIVE_PORT 7 /* Wait for REPLCONF reply */
 #define REPL_STATE_SEND_IP 8 /* Send REPLCONF ip-address */
@@ -1008,7 +1008,7 @@ struct redisServer {
     int saveparamslen;              /* Number of saving points */
     char *rdb_filename;             /* RDB文件名称 Name of RDB file */
     int rdb_compression;            /* 在RDB中使用压缩？ Use compression in RDB? */
-    int rdb_checksum;               /* Use RDB checksum? */
+    int rdb_checksum;               /* 是否使用rdb checksum Use RDB checksum? */
     time_t lastsave;                /* Unix time of last successful save */
     time_t lastbgsave_try;          /* Unix time of last attempted bgsave */
     time_t rdb_save_time_last;      /*  Time used by last RDB save run. */

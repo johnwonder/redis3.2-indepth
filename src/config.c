@@ -235,6 +235,8 @@ void loadServerConfigFromString(char *config) {
             if (addresses > CONFIG_BINDADDR_MAX) {
                 err = "Too many bind addresses specified"; goto loaderr;
             }
+
+            //还是从0开始绑定的
             for (j = 0; j < addresses; j++)
                 server.bindaddr[j] = zstrdup(argv[j+1]);
             server.bindaddr_count = addresses;
@@ -250,11 +252,18 @@ void loadServerConfigFromString(char *config) {
             if (argc == 3) {
                 int seconds = atoi(argv[1]);
                 int changes = atoi(argv[2]);
+
+                //当seconds小于1 或者changes 小于0
                 if (seconds < 1 || changes < 0) {
                     err = "Invalid save parameters"; goto loaderr;
                 }
+
+                //因为是append所以是追加
+                //不像bind 是从0开始绑定的
                 appendServerSaveParams(seconds,changes);
             } else if (argc == 2 && !strcasecmp(argv[1],"")) {
+                //如果是save ""
+                //重置保存参数
                 resetServerSaveParams();
             }
         } else if (!strcasecmp(argv[0],"dir") && argc == 2) {
@@ -330,9 +339,13 @@ void loadServerConfigFromString(char *config) {
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"slaveof") && argc == 3) {
+
+            //集群的时候判断
             slaveof_linenum = linenum;
+             //变成谁的从服务
             server.masterhost = sdsnew(argv[1]);
             server.masterport = atoi(argv[2]);
+            //当前复制状态为CONNECT //必须连接到master
             server.repl_state = REPL_STATE_CONNECT;
         } else if (!strcasecmp(argv[0],"repl-ping-slave-period") && argc == 2) {
             server.repl_ping_slave_period = atoi(argv[1]);

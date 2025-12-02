@@ -154,7 +154,8 @@
 			"stdlib.h": "c",
 			"time.h": "c",
 			"solarisfixes.h": "c",
-			"structa.h": "c"
+			"structa.h": "c",
+			"stdfloat": "cpp"
 		},
 		"makefile.configureOnOpen": true
 	}

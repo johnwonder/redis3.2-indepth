@@ -568,16 +568,21 @@ int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
     int s;
     struct sockaddr_un sa;
 
+    /*这里是AF_LOCAL 但是server.c中systemd创建的是 AF_UNIX*/
+    /*主要是 SOCK_STREAM 和SOCK_DGRAM的区别*/
+    /*https://pubs.opengroup.org/onlinepubs/9699919799/functions/socket.html*/
     if ((s = anetCreateSocket(err,AF_LOCAL)) == ANET_ERR)
         return ANET_ERR;
 
     memset(&sa,0,sizeof(sa));
     sa.sun_family = AF_LOCAL;
     strncpy(sa.sun_path,path,sizeof(sa.sun_path)-1);
+
+    //内部有bind和listen，但是systemd 那边没有监听
     if (anetListen(err,s,(struct sockaddr*)&sa,sizeof(sa),backlog) == ANET_ERR)
         return ANET_ERR;
     if (perm)
-        chmod(sa.sun_path, perm);
+        chmod(sa.sun_path, perm); //设置权限
     return s;
 }
 

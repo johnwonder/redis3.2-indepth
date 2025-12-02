@@ -288,6 +288,8 @@ ssize_t rdbSaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
     if (len <= 4) return 0;
     outlen = len-4;
     if ((out = zmalloc(outlen+1)) == NULL) return 0;
+
+    //压缩
     comprlen = lzf_compress(s, len, out, outlen);
     if (comprlen == 0) {
         zfree(out);
@@ -358,6 +360,7 @@ ssize_t rdbSaveRawString(rio *rdb, unsigned char *s, size_t len) {
     /* Try LZF compression - under 20 bytes it's unable to compress even
      * aaaaaaaaaaaaaaaaaa so skip it */
     if (server.rdb_compression && len > 20) {
+
         n = rdbSaveLzfStringObject(rdb,s,len);
         if (n == -1) return -1;
         if (n > 0) return n;
@@ -826,6 +829,9 @@ int rdbSaveRio(rio *rdb, int *error) {
     /* EOF opcode */
     if (rdbSaveType(rdb,RDB_OPCODE_EOF) == -1) goto werr;
 
+    /*
+      CRC64校验和。如果禁用校验和计算，它将为零，在这种情况下，加载代码将跳过检查
+    */
     /* CRC64 checksum. It will be zero if checksum computation is disabled, the
      * loading code skips the check in this case. */
     cksum = rdb->cksum;
@@ -1273,6 +1279,8 @@ void stopLoading(void) {
 /* Track loading progress in order to serve client's from time to time
    and if needed calculate rdb checksum  */
 void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
+
+    //判断是否启用rdb_checksum
     if (server.rdb_checksum)
         rioGenericUpdateChecksum(r, buf, len);
     if (server.loading_process_events_interval_bytes &&
@@ -1428,6 +1436,8 @@ int rdbLoad(char *filename) {
 
         if (rioRead(&rdb,&cksum,8) == 0) goto eoferr;
         memrev64ifbe(&cksum);
+
+        //cksum等于0
         if (cksum == 0) {
             serverLog(LL_WARNING,"RDB file was saved with checksum disabled: no check performed.");
         } else if (cksum != expected) {

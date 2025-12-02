@@ -1611,8 +1611,11 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
     /* AUTH with the master if required. */
     if (server.repl_state == REPL_STATE_SEND_AUTH) {
         if (server.masterauth) {
+
+            //发送验证命令
             err = sendSynchronousCommand(SYNC_CMD_WRITE,fd,"AUTH",server.masterauth,NULL);
             if (err) goto write_error;
+            //当前状态变成 等待验证回复
             server.repl_state = REPL_STATE_RECEIVE_AUTH;
             return;
         } else {

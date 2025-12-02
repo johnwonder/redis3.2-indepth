@@ -300,6 +300,8 @@ int redis_check_rdb(char *rdbfilename) {
         rdbstate.doing = RDB_CHECK_DOING_CHECK_SUM;
         if (rioRead(&rdb,&cksum,8) == 0) goto eoferr;
         memrev64ifbe(&cksum);
+
+        //获取到的cksum为0，所以判断是禁用了checksum
         if (cksum == 0) {
             rdbCheckInfo("RDB file was saved with checksum disabled: no check performed.");
         } else if (cksum != expected) {
