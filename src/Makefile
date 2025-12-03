@@ -60,6 +60,7 @@ ifeq ($(USE_JEMALLOC),no)
 endif
 
 #https://www.gnu.org/software/make/manual/html_node/Include.html
+# 如果你想让make忽略一个不存在或不能重制的makefile，而不提示错误，使用-include指令代替include
 #If you want make to simply ignore a makefile which does not exist or cannot be remade, with no error message, use the -include directive instead of include
 # Override default settings if possible
 -include .make-settings
@@ -232,6 +233,13 @@ endif
 # redis-server
 # 只要.c文件被修改过（即它们比对应的.o文件新），make就会自动推导并使用gcc -c命令来重新编译这些.c文件，并生成或更新对应的.o文件。
 # 因此，‌当Makefile中的依赖为.o文件时，且这些.o文件依赖于更新的.c源文件，make会自动编译这些.c源文件以生成或更新.o文件‌‌
+
+#由于源文件太多，编译生成的中间目标文件太多，而在链接时需要明显地指出中间目标
+#文件名，这对于编译很不方便。所以，我们要给中间目标文件打个包，在 Windows 下这种包叫“库文
+#件”（Library File），也就是 .lib 文件，在 UNIX 下，是 Archive File，也就是 .a 文件。
+
+#对 libhiredis.a、liblua.a：静态链接（直接复制代码，和 -static 无关）；
+# 对系统库（如 libc，程序默认依赖）：默认用动态链接（优先找 libc.so）—— 除非系统中没有动态库，才会用静态库 libc.a。
 $(REDIS_SERVER_NAME): $(REDIS_SERVER_OBJ)
 	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a $(REDIS_GEOHASH_OBJ) $(FINAL_LIBS)
 
@@ -244,10 +252,14 @@ $(REDIS_CHECK_RDB_NAME): $(REDIS_SERVER_NAME)
 	$(REDIS_INSTALL) $(REDIS_SERVER_NAME) $(REDIS_CHECK_RDB_NAME)
 
 # redis-cli
+#  $(REDIS_CLI_OBJ) 会编译
 $(REDIS_CLI_NAME): $(REDIS_CLI_OBJ)
 	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o $(FINAL_LIBS)
 
 # redis-benchmark 依赖  ae.o anet.o redis-benchmark.o adlist.o zmalloc.o redis-benchmark.o
+# cc -o redis-benchmark ae.o anet.o redis-benchmark.o adlist.o zmalloc.o redis-benchmark.o
+# $^ 就是$(REDIS_BENCHMARK_OBJ)
+# $@ 就是$(REDIS_BENCHMARK_NAME)
 $(REDIS_BENCHMARK_NAME): $(REDIS_BENCHMARK_OBJ)
 	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a $(FINAL_LIBS)
 
@@ -304,6 +316,7 @@ bench: $(REDIS_BENCHMARK_NAME)
 	@echo ""
 	$(MAKE) CFLAGS="-m32" LDFLAGS="-m32"
 #又执行了make命令
+# -fprofile-arcs 是 GCC/Clang 的 分支覆盖率统计选项 必须和 -ftest-coverage（或 -coverage）一起使用
 gcov:
 	$(MAKE) REDIS_CFLAGS="-fprofile-arcs -ftest-coverage -DCOVERAGE_TEST" REDIS_LDFLAGS="-fprofile-arcs -ftest-coverage"
 

@@ -786,6 +786,10 @@ int rdbSaveRio(rio *rdb, int *error) {
     if (rdbWriteRaw(rdb,magic,9) == -1) goto werr;
     if (rdbSaveInfoAuxFields(rdb) == -1) goto werr;
 
+    //遍历所有数据库
+    /*
+      
+    */
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
         dict *d = db->dict;

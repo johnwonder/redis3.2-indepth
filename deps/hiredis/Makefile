@@ -38,6 +38,10 @@ DYLIB_MAJOR_NAME=$(LIBNAME).$(DYLIBSUFFIX).$(HIREDIS_MAJOR)
 DYLIBNAME=$(LIBNAME).$(DYLIBSUFFIX)
 DYLIB_MAKE_CMD=$(CC) -shared -Wl,-soname,$(DYLIB_MINOR_NAME) -o $(DYLIBNAME) $(LDFLAGS)
 STLIBNAME=$(LIBNAME).$(STLIBSUFFIX)
+
+#  用 ar 打包 .o 文件为静态库 libmath.a（静态库命名约定：libxxx.a）
+# symbol table	生成索引符号表	为静态库创建 “函数 / 变量符号表”，让编译器（gcc/cc）能快速找到库中的函数实现（否则链接时会报错 “找不到符号”）
+# https://mp.weixin.qq.com/s/Fed-0uVaOGDUiftH43vnGA
 STLIB_MAKE_CMD=ar rcs $(STLIBNAME)
 
 # Platform-specific overrides
