@@ -264,6 +264,7 @@ void watchForKey(client *c, robj *key) {
             return; /* Key already watched */
     }
     /* This key is not already watched in this DB. Let's add it */
+    /*当前客户端的数据库的watched_keys字典中放入key,和客户端列表的 键值对*/
     clients = dictFetchValue(c->db->watched_keys,key);
     if (!clients) {
         clients = listCreate();
@@ -275,11 +276,11 @@ void watchForKey(client *c, robj *key) {
     /* 添加新的key到 被这个客户端观察的key列表中 */
     /* Add the new key to the list of keys watched by this client */
     wk = zmalloc(sizeof(*wk));
-    wk->key = key;
-    wk->db = c->db;
+    wk->key = key;  //当前watch的key
+    wk->db = c->db; //当前客户端选择的数据库
     //增加key的引用
     incrRefCount(key);
-    //把wk放入watched_keys列表
+    //把wk放入当前客户端的watched_keys列表
     listAddNodeTail(c->watched_keys,wk);
 }
 
@@ -294,6 +295,8 @@ void unwatchAllKeys(client *c) {
 
 
     if (listLength(c->watched_keys) == 0) return;
+
+    //获取当前客户端观察的keys
     listRewind(c->watched_keys,&li);
     
     /*遍历所有keys*/
@@ -304,12 +307,20 @@ void unwatchAllKeys(client *c) {
         /* Lookup the watched key -> clients list and remove the client
          * from the list */
         wk = listNodeValue(ln);
+
+        //获取当前key的客户端们
         clients = dictFetchValue(wk->db->watched_keys, wk->key);
         serverAssertWithInfo(c,NULL,clients != NULL);
+
+        //从客户端列表中删除当前key
         listDelNode(clients,listSearchKey(clients,c));
+
+        //删除当前键值对
         /* Kill the entry at all if this was the only client */
         if (listLength(clients) == 0)
             dictDelete(wk->db->watched_keys, wk->key);
+
+        /*从客户端watched 列表中移除当前key*/
         /* Remove this watched key from the client->watched list */
         listDelNode(c->watched_keys,ln);
         decrRefCount(wk->key);
@@ -319,6 +330,8 @@ void unwatchAllKeys(client *c) {
 
 /*
  signalModifiedKey方法调用
+
+ 跟选择的数据库有关
 */
 /* "Touch" a key, so that if this key is being WATCHed by some client the
  * next EXEC will fail. */
@@ -328,12 +341,18 @@ void touchWatchedKey(redisDb *db, robj *key) {
     listNode *ln;
 
     if (dictSize(db->watched_keys) == 0) return;
+
+    //根据当前数据库的watched_keys字典获取 当前监听这个key的客户端们
     clients = dictFetchValue(db->watched_keys, key);
+    //没客户端就发返回
     if (!clients) return;
 
     /* Mark all the clients watching this key as CLIENT_DIRTY_CAS */
     /* Check if we are already watching for this key */
+    /*创建一个迭代器li*/
     listRewind(clients,&li);
+
+    //遍历迭代
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
 
@@ -376,6 +395,8 @@ void watchCommand(client *c) {
         addReplyError(c,"WATCH inside MULTI is not allowed");
         return;
     }
+
+    //从第一个参数开始遍历参数
     for (j = 1; j < c->argc; j++)
         watchForKey(c,c->argv[j]);
     addReply(c,shared.ok);

@@ -89,6 +89,11 @@ typedef struct dictType {
  * 
  * 
  */
+/*这个是我们的hash表结构*/
+/*每一个字典 每一个字典有两个 */
+/*
+ 在我们采用增量rehash技术时，每部词典都会包含这两部分内容，即旧表和新表之间的映射关系。
+*/
 /* This is our hash table structure. Every dictionary has two of this as we
  * implement incremental rehashing, for the old to the new table. */
 typedef struct dictht {

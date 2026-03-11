@@ -154,10 +154,10 @@ typedef long long mstime_t; /* millisecond time type. */
 #define ACTIVE_EXPIRE_CYCLE_FAST 1
 
 /* Instantaneous metrics tracking. */
-#define STATS_METRIC_SAMPLES 16     /* Number of samples per metric. */
-#define STATS_METRIC_COMMAND 0      /* Number of commands executed. */
-#define STATS_METRIC_NET_INPUT 1    /* Bytes read to network .*/
-#define STATS_METRIC_NET_OUTPUT 2   /* Bytes written to network. */
+#define STATS_METRIC_SAMPLES 16     /*  Number of samples per metric. */
+#define STATS_METRIC_COMMAND 0      /* 命令执行的数量 Number of commands executed. */
+#define STATS_METRIC_NET_INPUT 1    /* 从网络读取的字节数 Bytes read to network .*/
+#define STATS_METRIC_NET_OUTPUT 2   /* 写入网络的字节数 Bytes written to network. */
 #define STATS_METRIC_COUNT 3
 
 /* 协议和输入输出关联的定义 Protocol and I/O related defines */
@@ -313,28 +313,28 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REPL_STATE_CONNECT 1 /* 必须连接到master Must connect to master */
 #define REPL_STATE_CONNECTING 2 /* 正在连接到master Connecting to master */
 /* --- 握手状态 Handshake states, must be ordered --- */
-#define REPL_STATE_RECEIVE_PONG 3 /* Wait for PING reply */
+#define REPL_STATE_RECEIVE_PONG 3 /* 等待ping的回复 Wait for PING reply */
 #define REPL_STATE_SEND_AUTH 4 /* Send AUTH to master */
 #define REPL_STATE_RECEIVE_AUTH 5 /* 等待验证回复 Wait for AUTH reply */
 #define REPL_STATE_SEND_PORT 6 /* Send REPLCONF listening-port */
 #define REPL_STATE_RECEIVE_PORT 7 /* Wait for REPLCONF reply */
 #define REPL_STATE_SEND_IP 8 /* Send REPLCONF ip-address */
-#define REPL_STATE_RECEIVE_IP 9 /* Wait for REPLCONF reply */
+#define REPL_STATE_RECEIVE_IP 9 /* 等待REPLCONF回复 Wait for REPLCONF reply */
 #define REPL_STATE_SEND_CAPA 10 /* Send REPLCONF capa */
 #define REPL_STATE_RECEIVE_CAPA 11 /* Wait for REPLCONF reply */
 #define REPL_STATE_SEND_PSYNC 12 /* Send PSYNC */
 #define REPL_STATE_RECEIVE_PSYNC 13 /* Wait for PSYNC reply */
 /* --- End of handshake states --- */
 #define REPL_STATE_TRANSFER 14 /* Receiving .rdb from master */
-#define REPL_STATE_CONNECTED 15 /* Connected to master */
+#define REPL_STATE_CONNECTED 15 /* 已经连接到master Connected to master */
 
 /* State of slaves from the POV of the master. Used in client->replstate.
  * In SEND_BULK and ONLINE state the slave receives new updates
  * in its output queue. In the WAIT_BGSAVE states instead the server is waiting
  * to start the next background saving in order to send updates to it. */
 #define SLAVE_STATE_WAIT_BGSAVE_START 6 /* We need to produce a new RDB file. */
-#define SLAVE_STATE_WAIT_BGSAVE_END 7 /* Waiting RDB file creation to finish. */
-#define SLAVE_STATE_SEND_BULK 8 /* Sending RDB file to slave. */
+#define SLAVE_STATE_WAIT_BGSAVE_END 7 /* 等待RDB文件创建完成 Waiting RDB file creation to finish. */
+#define SLAVE_STATE_SEND_BULK 8 /* 正在发送RDB文件给slave Sending RDB file to slave. */
 #define SLAVE_STATE_ONLINE 9 /* RDB file transmitted, sending just updates. */
 
 /* Slave capabilities. */
@@ -955,15 +955,15 @@ struct redisServer {
         int idx;
     } inst_metric[STATS_METRIC_COUNT];
     /* Configuration */
-    int verbosity;                  /* redis.conf配置文件中的日志级别 Loglevel in redis.conf */
-    int maxidletime;                /* Client timeout in seconds */
+    int verbosity;                  /*  redis.conf配置文件中的日志级别 Loglevel in redis.conf */
+    int maxidletime;                /* 客户端最大超时时间（秒） Client timeout in seconds */
     int tcpkeepalive;               /* 不是0就是设置SO_KEEPALIVE Set SO_KEEPALIVE if non-zero. */
     int active_expire_enabled;      /* 测试的时候可以禁用 Can be disabled for testing purposes. */
     size_t client_max_querybuf_len; /* 客户端查询缓冲区长度限制 Limit for client query buffer length */
-    int dbnum;                      /* Total number of configured DBs */
+    int dbnum;                      /* 配置的数据库数量 Total number of configured DBs */
     int supervised;                 /* 1 if supervised, 0 otherwise. */
     int supervised_mode;            /* See SUPERVISED_* */
-    int daemonize;                  /* True if running as a daemon */
+    int daemonize;                  /* 后台运行就为true True if running as a daemon */
     clientBufferLimitsConfig client_obuf_limits[CLIENT_TYPE_OBUF_COUNT];
     /*AOF持久化 AOF persistence */
     int aof_state;                  /* AOF_(ON|OFF|WAIT_REWRITE) */
@@ -974,12 +974,12 @@ struct redisServer {
     off_t aof_rewrite_min_size;     /* the AOF file is at least N bytes. */
     off_t aof_rewrite_base_size;    /* AOF size on latest startup or rewrite. */
     off_t aof_current_size;         /* AOF当前大小 AOF current size. */
-    int aof_rewrite_scheduled;      /* Rewrite once BGSAVE terminates. */
+    int aof_rewrite_scheduled;      /* 一旦BGSAVE停止就重写 进入调度状态 Rewrite once BGSAVE terminates. */
     pid_t aof_child_pid;            /* 重写进程的PID PID if rewriting process */
     list *aof_rewrite_buf_blocks;   /*持有aof重写过程中的变化 Hold changes during an AOF rewrite. */
     sds aof_buf;      /* AOF buffer, written before entering the event loop */
     int aof_fd;       /* 当前选择的AOF文件描述符 File descriptor of currently selected AOF file */
-    int aof_selected_db; /* Currently selected DB in AOF */
+    int aof_selected_db; /*在AOF中选择的数据库 Currently selected DB in AOF */
     time_t aof_flush_postponed_start; /* UNIX time of postponed AOF flush */
     time_t aof_last_fsync;            /* UNIX time of last fsync() */
     time_t aof_rewrite_time_last;   /* Time used by last AOF rewrite run. */

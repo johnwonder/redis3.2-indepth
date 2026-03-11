@@ -1148,6 +1148,8 @@ void trackInstantaneousMetric(int metric, long long current_reading) {
     server.inst_metric[metric].samples[server.inst_metric[metric].idx] =
         ops_sec;
     server.inst_metric[metric].idx++;
+    //通过取模运算，让idx在0~15（因为 16 取模）范围内循环。
+    //当idx增长到 16 时，16 % 16 = 0，索引回到数组开头，覆盖最早的采样值。这是典型的环形缓冲区（Ring Buffer） 逻辑，用于保留最近的 16 个采样值（滑动窗口大小为 16）。
     server.inst_metric[metric].idx %= STATS_METRIC_SAMPLES; //STATS_METRIC_SAMPLES 16
     server.inst_metric[metric].last_sample_time = mstime();
     server.inst_metric[metric].last_sample_count = current_reading;
@@ -1452,6 +1454,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     //因为serverCron函数返回为1000/server.hz 那么如果server.hz等于100
     //serverCron 就10毫秒执行一次
     //run_with_period(100) 就代表按100毫秒的周期执行 ，也就是server.cronloops 为10的倍数时才会 执行
+    /*默认100毫秒执行一次*/
     run_with_period(100) {
         //度量 命令操作数量
         trackInstantaneousMetric(STATS_METRIC_COMMAND,server.stat_numcommands);
@@ -1487,15 +1490,20 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /*//也就是在1000毫秒内 */
     server.lruclock = getLRUClock(); //100毫秒更新一次
 
+    /*从服务器开始之后记录使用的最大内存*/
     /* Record the max memory used since the server was started. */
     if (zmalloc_used_memory() > server.stat_peak_memory)
         server.stat_peak_memory = zmalloc_used_memory();
 
     /* Sample the RSS here since this is a relatively slow call. */
+    /*这里以RSS为例，因为这是一个相对较慢的调用*/
     server.resident_set_size = zmalloc_get_rss();
 
     /* We received a SIGTERM, shutting down here in a safe way, as it is
      * not ok doing so inside the signal handler. */
+    /*
+     我们收到了一个SIGTERM，在这里以一种安全的方式关闭，因为在信号处理程序中这样做是不行的
+    */
     if (server.shutdown_asap) {
         if (prepareForShutdown(SHUTDOWN_NOFLAGS) == C_OK) exit(0);
         serverLog(LL_WARNING,"SIGTERM received but errors trying to shut down the server, check the logs for more information");
@@ -1521,8 +1529,11 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         }
     }
 
+    /*如果不是在sentinel模式下 就显示连接的客户端信息*/
     /* Show information about connected clients */
     if (!server.sentinel_mode) {
+
+        //5秒显示一次
         run_with_period(5000) {
             serverLog(LL_VERBOSE,
                 "%lu clients connected (%lu slaves), %zu bytes in use",
@@ -1585,6 +1596,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         /* If there is not a background saving/rewrite in progress check if
          * we have to save/rewrite now */
          for (j = 0; j < server.saveparamslen; j++) {
+
+            //获取当前参数
             struct saveparam *sp = server.saveparams+j;
 
             /*如果我们达到变化的总量，总的时间，且 最后一次保存成功 或者 最后一次尝试的保存的时间 已经超过5秒*/
@@ -3025,7 +3038,7 @@ int processCommand(client *c) {
         //添加ok回复到输出缓存中
         //这里就是共享对象
         addReply(c,shared.ok);
-        //设置标志
+        //设置标志 然后写完回复后服务端主动断掉客户端连接
         c->flags |= CLIENT_CLOSE_AFTER_REPLY;
         //返回错误
         return C_ERR;

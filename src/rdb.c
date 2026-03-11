@@ -943,6 +943,7 @@ int rdbSaveBackground(char *filename) {
     if (server.aof_child_pid != -1 || server.rdb_child_pid != -1) return C_ERR;
 
     server.dirty_before_bgsave = server.dirty;
+    
     server.lastbgsave_try = time(NULL);
 
     start = ustime();
@@ -1258,9 +1259,20 @@ void startLoading(FILE *fp) {
     struct stat sb;
 
     /* Load the DB */
-    server.loading = 1;
-    server.loading_start_time = time(NULL);
+    server.loading = 1; //标记下
+    server.loading_start_time = time(NULL); //开始时间
     server.loading_loaded_bytes = 0;
+    /*
+    stat(fileno(fp), &sb) 是一个在 Redis 源码中常见的系统调用组合，用于获取文件的状态信息。
+    下面我将结合其常见用途和潜在问题为您详细解释。
+
+    函数作用
+    ‌fileno(fp)‌：这是一个 C 标准库函数，用于从文件指针 fp（如 FILE* 类型）获取底层的文件描述符（整数）。
+    文件描述符是操作系统用于标识打开文件的唯一整数。
+    ‌fstat()‌：这是一个系统调用，用于获取指定文件描述符对应的文件状态信息（如大小、权限、修改时间等）。
+    这些信息会被填充到 struct stat 结构体 sb 中。‌
+    
+    */
     if (fstat(fileno(fp), &sb) == -1) {
         server.loading_total_bytes = 0;
     } else {
@@ -1297,15 +1309,21 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
         if (server.masterhost && server.repl_state == REPL_STATE_TRANSFER)
             replicationSendNewlineToMaster();
         loadingProgress(r->processed_bytes);
+
+        //处理阻塞期间的事件
         processEventsWhileBlocked();
     }
 }
 
+/*
+ 加载rdb文件
+*/
 int rdbLoad(char *filename) {
     uint32_t dbid;
     int type, rdbver;
     redisDb *db = server.db+0;
     char buf[1024];
+    //过期时间
     long long expiretime, now = mstime();
     FILE *fp;
     rio rdb;
@@ -1323,14 +1341,18 @@ int rdbLoad(char *filename) {
         errno = EINVAL;
         return C_ERR;
     }
+
+    //读取版本号
     rdbver = atoi(buf+5);
     if (rdbver < 1 || rdbver > RDB_VERSION) {
         fclose(fp);
+        //不能处理rdb版本号
         serverLog(LL_WARNING,"Can't handle RDB format version %d",rdbver);
         errno = EINVAL;
         return C_ERR;
     }
 
+    //设置状态
     startLoading(fp);
     while(1) {
         robj *key, *val;
@@ -1349,7 +1371,7 @@ int rdbLoad(char *filename) {
             if ((type = rdbLoadType(&rdb)) == -1) goto eoferr;
             /* the EXPIRETIME opcode specifies time in seconds, so convert
              * into milliseconds. */
-            expiretime *= 1000;
+            expiretime *= 1000; /*乘以1000转换成毫秒*/
         } else if (type == RDB_OPCODE_EXPIRETIME_MS) {
             /* EXPIRETIME_MS: milliseconds precision expire times introduced
              * with RDB v3. Like EXPIRETIME but no with more precision. */
@@ -1363,6 +1385,8 @@ int rdbLoad(char *filename) {
             /* SELECTDB: Select the specified database. */
             if ((dbid = rdbLoadLen(&rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
+
+            // 如果读取的db号大于等于服务器的数据库数量 就退出
             if (dbid >= (unsigned)server.dbnum) {
                 serverLog(LL_WARNING,
                     "FATAL: Data file was created with a Redis "
@@ -1380,6 +1404,8 @@ int rdbLoad(char *filename) {
                 goto eoferr;
             if ((expires_size = rdbLoadLen(&rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
+            
+            //
             dictExpand(db->dict,db_size);
             dictExpand(db->expires,expires_size);
             continue; /* Read type again. */
@@ -1426,6 +1452,8 @@ int rdbLoad(char *filename) {
             decrRefCount(val);
             continue;
         }
+
+        //把key的val放入数据库
         /* Add the new object in the hash table */
         dbAdd(db,key,val);
 

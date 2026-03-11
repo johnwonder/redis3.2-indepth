@@ -59,6 +59,9 @@ size_t getStringObjectSdsUsedMemory(robj *o) {
     }
 }
 
+/*
+ 只是增加引用计数
+*/
 void *dupClientReplyValue(void *o) {
     incrRefCount((robj*)o);
     return o;
@@ -225,8 +228,9 @@ int prepareClientToWrite(client *c) {
     if (c->fd <= 0) return C_ERR; /* Fake client for AOF loading. */
 
     //安排 客户端仅在尚未完成（没有挂起的写入，客户端尚未标记）时将输出缓冲区写入套接字
-
+    
     //对于slave来说 如果slave 在这个阶段能真正接收写入
+    //没有挂起的回复时才标记
     /* Schedule the client to write the output buffers to the socket only
      * if not already done (there were no pending writes already and the client
      * was yet not flagged), and, for slaves, if the slave can actually
@@ -278,6 +282,9 @@ robj *dupLastObjectIfNeeded(list *reply) {
  * -------------------------------------------------------------------------- */
 
 int _addReplyToBuffer(client *c, const char *s, size_t len) {
+
+
+    //哦 因为buf只有16kb的容量
     size_t available = sizeof(c->buf)-c->bufpos;
 
     //如果标记了CLIENT_CLOSE_AFTER_REPLY 就直接返回
@@ -319,6 +326,7 @@ void _addReplyObjectToList(client *c, robj *o) {
 
         /* Append to this object when possible. */
         /*PROTO_REPLY_CHUNK_BYTES = 16 kb  16*1024个字节*/
+        //小于16kb的时候就追加tail字符串
         if (tail->ptr != NULL &&
             tail->encoding == OBJ_ENCODING_RAW &&
             sdslen(tail->ptr)+sdslen(o->ptr) <= PROTO_REPLY_CHUNK_BYTES)
@@ -328,8 +336,11 @@ void _addReplyObjectToList(client *c, robj *o) {
             tail->ptr = sdscatlen(tail->ptr,o->ptr,sdslen(o->ptr));
             c->reply_bytes += sdsZmallocSize(tail->ptr);
         } else {
+
+            //直接加到列表最后
             incrRefCount(o);
             listAddNodeTail(c->reply,o);
+            //增加回复字节数
             c->reply_bytes += getStringObjectSdsUsedMemory(o);
         }
     }
@@ -1087,11 +1098,16 @@ int writeToClient(int fd, client *c, int handler_installed) {
 
             /* If the buffer was sent, set bufpos to zero to continue with
              * the remainder of the reply. */
+            /*
+               缓冲已经发送，设置bufpos为0 
+            */
             if ((int)c->sentlen == c->bufpos) {
                 c->bufpos = 0;
                 c->sentlen = 0;
             }
         } else {
+            
+            // 客户端c回复列表
             o = listNodeValue(listFirst(c->reply));
             objlen = sdslen(o->ptr);
             objmem = getStringObjectSdsUsedMemory(o);
@@ -1165,11 +1181,14 @@ int writeToClient(int fd, client *c, int handler_installed) {
 
      //如果还有挂起的消息需要处理 也就是不会删除事件
      //那么在 handleClientsWithPendingWrites 中有可能还会添加写事件吧？？
+
+     //判断bufpos 或者 reply 列表有没有
+     //如果两个都没有
     if (!clientHasPendingReplies(c)) {
 
        
 
-        c->sentlen = 0;
+        c->sentlen = 0; //置为0
 
         //在 sendReplyToClient 中 会标记handler_installed 为1
         //如果安装了处理器 那么就删除它
@@ -1792,6 +1811,8 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     } else if (nread == 0) {
         //telnet 关闭客户端时 会提示这个
         serverLog(LL_VERBOSE, "Client closed connection");
+
+        //
         freeClient(c);
         //读取为0时直接返回了
         return;
@@ -1803,6 +1824,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     //todo 如果当前client是master 那么偏移量增加 主从相关
     if (c->flags & CLIENT_MASTER) c->reploff += nread;
     //增加网络字节数
+    /* serverCron里 会100毫秒一次计算测量*/
     server.stat_net_input_bytes += nread;
 
     //当前查询缓冲区长度  如果大于 最大缓冲区限制 那就释放客户端
@@ -2239,8 +2261,8 @@ unsigned long getClientOutputBufferMemoryUsage(client *c) {
  * classes of clients.
  *
  * The function will return one of the following:
- * CLIENT_TYPE_NORMAL -> Normal client
- * CLIENT_TYPE_SLAVE  -> Slave or client executing MONITOR command
+ * CLIENT_TYPE_NORMAL -> Normal client 正常客户端
+ * CLIENT_TYPE_SLAVE  -> Slave or client executing MONITOR command slave或者执行monitor命令的客户端
  * CLIENT_TYPE_PUBSUB -> Client subscribed to Pub/Sub channels
  * CLIENT_TYPE_MASTER -> The client representing our replication master.
  */
@@ -2280,6 +2302,7 @@ int checkClientOutputBufferLimits(client *c) {
     int soft = 0, hard = 0, class;
     unsigned long used_mem = getClientOutputBufferMemoryUsage(c);
 
+    //获取客户端类型
     class = getClientType(c);
     /* For the purpose of output buffer limiting, masters are handled
      * like normal clients. */
@@ -2432,6 +2455,7 @@ int clientsArePaused(void) {
             c = listNodeValue(ln);
 
             //不管slave和blocked 的客户端。
+            //
             //取消阻止后，将处理后一个挂起的请求。
             /* Don't touch slaves and blocked clients. The latter pending
              * requests be processed when unblocked. */
@@ -2450,12 +2474,15 @@ int clientsArePaused(void) {
  * This allows to reply to clients with the -LOADING error while loading the
  * data set at startup or after a full resynchronization with the master
  * and so forth.
- *
+ * 它调用事件循环来处理一些事件。
+ * 具体来说，只要我们接收到某个事件被处理的确认，我们就会尝试调用事件循环4次，
+ * 以便继续执行为客户端服务所需的接受、读取、写入、关闭序列
  * It calls the event loop in order to process a few events. Specifically we
  * try to call the event loop 4 times as long as we receive acknowledge that
  * some event was processed, in order to go forward with the accept, read,
  * write, close sequence needed to serve a client.
  *
+ * 返回处理事件的总数
  * The function returns the total number of events processed. */
 int processEventsWhileBlocked(void) {
     int iterations = 4; /* See the function top-comment. */
@@ -2464,6 +2491,8 @@ int processEventsWhileBlocked(void) {
         int events = 0;
         events += aeProcessEvents(server.el, AE_FILE_EVENTS|AE_DONT_WAIT);
         events += handleClientsWithPendingWrites();
+
+        //没有处理的事件 直接返回
         if (!events) break;
         count += events;
     }

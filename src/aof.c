@@ -243,6 +243,9 @@ void stopAppendOnly(void) {
     }
 }
 
+/*
+  当用户在运行的时候通过config命令 从appendonly 切换到appendonly yes的时候调用
+*/
 /* Called when the user switches from "appendonly no" to "appendonly yes"
  * at runtime using the CONFIG command. */
 int startAppendOnly(void) {
@@ -251,6 +254,8 @@ int startAppendOnly(void) {
     server.aof_last_fsync = server.unixtime;
     server.aof_fd = open(server.aof_filename,O_WRONLY|O_APPEND|O_CREAT,0644);
     serverAssert(server.aof_state == AOF_OFF);
+
+    
     if (server.aof_fd == -1) {
         char *cwdp = getcwd(cwd,MAXPATHLEN);
 
@@ -667,6 +672,7 @@ int loadAppendOnlyFile(char *filename) {
     long loops = 0;
     off_t valid_up_to = 0; /* Offset of the latest well-formed command loaded. */
 
+    /*判断文件大小 */
     if (fp && redis_fstat(fileno(fp),&sb) != -1 && sb.st_size == 0) {
         server.aof_current_size = 0;
         fclose(fp);
@@ -678,10 +684,12 @@ int loadAppendOnlyFile(char *filename) {
         exit(1);
     }
 
+    //临时禁用AOF,以防止重复执行同一个文件
     /* Temporarily disable AOF, to prevent EXEC from feeding a MULTI
      * to the same file we're about to read. */
     server.aof_state = AOF_OFF;
 
+    //创建一个假的客户端
     fakeClient = createFakeClient();
     startLoading(fp);
 
@@ -693,6 +701,7 @@ int loadAppendOnlyFile(char *filename) {
         sds argsds;
         struct redisCommand *cmd;
 
+        //也就是loops++ % 1000 = 0的时候
         /* Serve the clients from time to time */
         if (!(loops++ % 1000)) {
             loadingProgress(ftello(fp));
@@ -707,6 +716,8 @@ int loadAppendOnlyFile(char *filename) {
         }
         if (buf[0] != '*') goto fmterr;
         if (buf[1] == '\0') goto readerr;
+
+        //读取数字
         argc = atoi(buf+1);
         if (argc < 1) goto fmterr;
 
@@ -723,13 +734,18 @@ int loadAppendOnlyFile(char *filename) {
             if (buf[0] != '$') goto fmterr;
             len = strtol(buf+1,NULL,10);
             argsds = sdsnewlen(NULL,len);
+
+            //读取文件
             if (len && fread(argsds,len,1,fp) == 0) {
                 sdsfree(argsds);
                 fakeClient->argc = j; /* Free up to j-1. */
                 freeFakeClientArgv(fakeClient);
                 goto readerr;
             }
+            //创建string对象
             argv[j] = createObject(OBJ_STRING,argsds);
+
+
             if (fread(buf,2,1,fp) == 0) {
                 fakeClient->argc = j+1; /* Free up to j. */
                 freeFakeClientArgv(fakeClient);
@@ -744,6 +760,7 @@ int loadAppendOnlyFile(char *filename) {
             exit(1);
         }
 
+        //执行命令
         /* Run the command in the context of a fake client */
         cmd->proc(fakeClient);
 

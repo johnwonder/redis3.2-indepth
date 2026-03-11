@@ -1144,6 +1144,7 @@ void watchdogSignalHandler(int sig, siginfo_t *info, void *secret) {
 
     serverLogFromHandler(LL_WARNING,"\n--- WATCHDOG TIMER EXPIRED ---");
 #ifdef HAVE_BACKTRACE
+    //backtrace
     logStackTrace(uc);
 #else
     serverLogFromHandler(LL_WARNING,"Sorry: no support for backtrace().");
@@ -1158,11 +1159,18 @@ void watchdogScheduleSignal(int period) {
     struct itimerval it;
 
     /* Will stop the timer if period is 0. */
-    it.it_value.tv_sec = period/1000;
-    it.it_value.tv_usec = (period%1000)*1000;
+    it.it_value.tv_sec = period/1000; //秒
+    it.it_value.tv_usec = (period%1000)*1000; //微秒
     /* Don't automatically restart. */
+    /*it_interval 设为 0 表示 定时器只触发一次，不会重复执行*/
     it.it_interval.tv_sec = 0;
     it.it_interval.tv_usec = 0;
+    /*
+    setitimer 是 Linux 系统调用，用于设置定时器，参数说明：
+    ITIMER_REAL：定时器类型，以 “真实时间” 计时，到期后触发 SIGALRM 信号（默认信号）。
+    &it：指向上面初始化的 itimerval 结构体，定义定时器的触发时间和间隔。
+    NULL：不关心之前的定时器状态（若传入指针，可获取旧定时器的剩余时间）
+    */
     setitimer(ITIMER_REAL, &it, NULL);
 }
 
@@ -1183,7 +1191,7 @@ void enableWatchdog(int period) {
     /* If the configured period is smaller than twice the timer period, it is
      * too short for the software watchdog to work reliably. Fix it now
      * if needed. */
-    min_period = (1000/server.hz)*2;
+    min_period = (1000/server.hz)*2; //如果配置的周期小于 时间循环的两倍 
     if (period < min_period) period = min_period;
     watchdogScheduleSignal(period); /* Adjust the current timer. */
     server.watchdog_period = period;
@@ -1193,6 +1201,8 @@ void enableWatchdog(int period) {
 void disableWatchdog(void) {
     struct sigaction act;
     if (server.watchdog_period == 0) return; /* Already disabled. */
+
+    //停止timer
     watchdogScheduleSignal(0); /* Stop the current timer. */
 
     /* Set the signal handler to SIG_IGN, this will also remove pending

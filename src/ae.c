@@ -180,7 +180,7 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
     aeApiDelEvent(eventLoop, fd, mask);
     //更新mask
     fe->mask = fe->mask & (~mask);
-    //更新最大文件描述符
+    //更新最大文件描述符 
     if (fd == eventLoop->maxfd && fe->mask == AE_NONE) {
         /* Update the max fd */
         int j;
