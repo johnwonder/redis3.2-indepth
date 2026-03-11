@@ -63,7 +63,7 @@
  * prevented: a hash table is still allowed to grow if the ratio between
  * the number of elements and the buckets > dict_force_resize_ratio. */
 static int dict_can_resize = 1;//默认是1
-static unsigned int dict_force_resize_ratio = 5; //?? force强迫 ratio是比例的意思
+static unsigned int dict_force_resize_ratio = 5; // force强迫 ratio是比例的意思
 
 /* --------------------------私有原型 private prototypes ---------------------------- */
 
@@ -289,12 +289,14 @@ int dictResize(dict *d)
     if (minimal < DICT_HT_INITIAL_SIZE)
         minimal = DICT_HT_INITIAL_SIZE;
 
+    /* 内部通过 _dictNextPower 返回 真正的大小*/
     /*用minimal调用扩展函数后返回结果*/
     return dictExpand(d, minimal);
 }
 
 /*
     扩展或创建hash表
+    缩容的时候也会调用
 */
 /* Expand or create the hash table */
 int dictExpand(dict *d, unsigned long size)
@@ -727,6 +729,8 @@ static int dictGenericDelete(dict *d, const void *key, int nofree)
                     dictFreeVal(d, he);
                 }
                 zfree(he); //这一句4.0移动到if(!nofree) 里了。
+
+                /*也是会触发缩容的关键*/
                 d->ht[table].used--;
                 //对于删除操作，代码只是很简单的 while 循环，
                 //在两个 ht 上都会查找和删除元素，不过一般应该只会实际在一个 ht 上删除元素，找到就删除即可
@@ -1114,29 +1118,42 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
 
     /*如果当前两个表加起来数量小于count参数 那就把count参数置为两表的和*/
     if (dictSize(d) < count) count = dictSize(d);
+
+    /*
+      足够大的最大步数（count*10）
+      遍历步数是目标键数的 10 倍，即使哈希表空桶多，也有足够多的机会碰到非空桶；
+     比如要获取 3 个键，会遍历 30 步，远大于 “连续空桶重选” 的阈值（5），进一步降低踩空的概率。
+    */
     maxsteps = count*10;
 
     /* 尝试做一个与参数 count 成比例的散列工作。*/
     /* Try to do a rehashing work proportional to 'count'. */
+    //// 每次获取键时，先做 count 次 rehash 步进（推进 rehash 进度）
     for (j = 0; j < count; j++) {
         if (dictIsRehashing(d))
-            _dictRehashStep(d);
+            _dictRehashStep(d); // 单次 rehash 步进：迁移一个桶的键
         else
-            break;
+            break; //直接跳出了
     }
     //如果正在rehash 那么就要查2个表
     tables = dictIsRehashing(d) ? 2 : 1;
     maxsizemask = d->ht[0].sizemask; //sizemask 一般为 realsize-1;
 
     /*选取较大的一个表*/
+    /// 如果是2表遍历，且ht[1]的掩码更大（新表更长），则用ht[1]的掩码
     if (tables > 1 && maxsizemask < d->ht[1].sizemask)
         maxsizemask = d->ht[1].sizemask; //sizemask 一般为 realsize-1;
 
     /*在较大的表格内随机选取一个点*/
+    //// 随机选一个起始桶索引（0 ~ maxsizemask）
     /* Pick a random point inside the larger table. */
     unsigned long i = random() & maxsizemask; //位运算（&）是 CPU 原生指令，比取模（%）快得多（取模本质是除法，CPU 计算成本高）。
     unsigned long emptylen = 0; /* Continuous empty entries so far. */
+
+    //// 终止条件：收集够count个键 或 用完最大步数
     while(stored < count && maxsteps--) {
+
+        //// 遍历所有需要处理的表（1个或2个）
         for (j = 0; j < tables; j++) {
 
             /*
@@ -1148,6 +1165,9 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
             /* Invariant of the dict.c rehashing: up to the indexes already
              * visited in ht[0] during the rehashing, there are no populated
              * buckets, so we can skip ht[0] for indexes between 0 and idx-1. */
+            // ========== 核心：rehash 期间的桶索引跳过逻辑 ==========
+            // 场景：rehash中（tables=2）、遍历旧表（j=0）、且当前索引i < rehashidx
+            // 含义：rehashidx 之前的旧表桶已经迁移到新表，所以这些桶一定是空的，直接跳过
             if (tables == 2 && j == 0 && i < (unsigned long) d->rehashidx) {
 
                 /*
@@ -1160,7 +1180,9 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
                  * the current rehashing index, so we jump if possible.
                  * (this happens when going from big to small table). */
                 //相当于i 大于表1的数量 且 小于rehashidx 
-                if (i >= d->ht[1].size) i = d->rehashidx;
+                // 额外优化：如果i超出新表范围（新表比旧表小），直接跳到rehashidx
+                // （比如旧表size=16，新表size=8，i=9时新表无此桶，直接跳去rehashidx避免无效遍历）
+                if (i >= d->ht[1].size) i = d->rehashidx; //
                 continue;
             }
 
@@ -1174,11 +1196,11 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
             if (he == NULL) {
                 emptylen++; //空桶数量增加
                 if (emptylen >= 5 && emptylen > count) {
-                    i = random() & maxsizemask; //重新获取i
+                    i = random() & maxsizemask; //重新获取i 范围为0-maxsizemask
                     emptylen = 0;
                 }
             } else {
-                emptylen = 0;
+                emptylen = 0;//重置为0
                 while (he) {
                     /* Collect all the elements of the buckets found non
                      * empty while iterating. */
@@ -1200,11 +1222,170 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
  /*https://www.cnblogs.com/gqtcgq/p/7247077.html*/
  /* https://blog.csdn.net/m0_64280701/article/details/123064976 */
 static unsigned long rev(unsigned long v) {
+
+    //1. 计算v的总位数（s）：sizeof(v)是字节数，乘以8得到位数（如sizeof(long)=4 → s=32）
     unsigned long s = 8 * sizeof(v); // bit size; must be power of 2
+    // 2. 初始化掩码mask为全1（~0在无符号类型中是所有位都为1，比如32位就是0xFFFFFFFF）
     unsigned long mask = ~0; //-1??
     //https://blog.csdn.net/m0_64280701/article/details/123064976
+    // s每次右移1位（即除以2），直到s>0
+    /*
+      假设 v 是 32 位，初始 s=32，循环执行过程：
+
+      s= 16
+      mask = ~0 ^ (~0<<16) → 0x0000FFFF（低 16 位 1，高 16 位 0）
+      v 的高 16 位右移 16 位 + v 的低 16 位左移 16 位 → 交换高低 16 位
+    
+    
+    */
     while ((s >>= 1) > 0) {
+          // 步骤1：更新掩码mask → 把mask拆分为“前s位0，后s位1”（分治的关键）
+          /*
+            mask（原）： 11111111 11111111 11111111 11111111 （简化写法，实际是32位全1）
+            mask << 16：11111111 11111111 00000000 00000000 （左移16位，右侧补0）
+          
+            mask（原）：   11111111 11111111 11111111 11111111
+            mask << 16：  11111111 11111111 00000000 00000000
+            异或结果：     00000000 00000000 11111111 11111111
+
+            第二轮：
+            原mask：    00000000 00000000 11111111 11111111
+            mask << 8： 00000000 11111111 11111111 00000000
+            异或结果：  00000000 11111111 00000000 11111111
+
+            第三轮：
+            原mask：    00000000 11111111 00000000 11111111
+            mask << 4： 00001111 11110000 00001111 11110000
+            异或结果：  00001111 00001111 00001111 00001111
+
+            第四轮：
+            原mask：    00001111 00001111 00001111 00001111
+            mask << 2： 00111100 00111100 00111100 11110000
+            异或结果：   00110011 00110011 00110011 00110011
+
+            第五轮：
+            原mask：    00110011 00110011 00110011 00110011
+            mask << 1： 01100110 01100110 01100110 01100110
+            异或结果：   01010101 01010101 01010101 01010101
+          */
         mask ^= (mask << s);
+
+         // 步骤2：核心反转操作 → 把v的高s位和低s位交换
+         /*
+           (v >> s) & mask —— 高 s 位移到低 s 位
+           v >> s：将 v 右移 s 位（16 位），把高 16 位移到低 16 位区域，高 16 位补 0。
+            示例：0x12345678 >> 16 = 0x00001234（高 16 位 0x1234 移到低 16 位）。
+            & mask：用掩码 0x0000FFFF 过滤，只保留低 16 位，高 16 位强制清零。
+            示例：0x00001234 & 0x0000FFFF = 0x00001234（结果就是原高 16 位，且仅占低 16 位）。
+         
+
+         v << s：将 v 左移 s 位（16 位），把低 16 位移到高 16 位区域，低 16 位补 0。
+        示例：0x12345678 << 16 = 0x56780000（低 16 位 0x5678 移到高 16 位）。
+        & ~mask：用 ~mask（0xFFFF0000）过滤，只保留高 16 位，低 16 位强制清零。
+        示例：0x56780000 & 0xFFFF0000 = 0x56780000（结果就是原低 16 位，且仅占高 16 位）。
+
+         再或操作后变为：0x56781234
+
+           第二轮：
+           0x56781234 右移8位 0x00567812 
+           与上mask 0x00FF00FF后 变为 0x00560012
+
+           0x56781234 左移8位 0x78123400
+           与上mask 0xFF00FF00 后 变为 0x78003400
+
+           再或操作变为
+           0x78563412
+
+           第三轮：
+           0x78563412 右移4位 0x07856341 
+           与上mask 0x0F0F0F0F后 变为 0x07050301
+
+           0x78563412 左移4位 0x85634120
+           与上~mask 0xF0F0F0F0 后 变为 0x80604020
+
+           再或操作变为
+           0x87654321
+
+           第四轮：
+           0x87654321 
+          
+           1000 0111 0110 0101 0100 0011 0010 0001
+            右移2位 
+           0010 0001 1101 1001 0101 0000 1100 1000
+
+           0010 0001 1101 1001 0101 0000 1100 1000
+            
+           与上mask
+           0011 0011 0011 0011 0011 0011 0011 0011
+           变为
+           0010 0001 0001 0001 0001 0000 0000 0000
+           
+           0010 0001 0001 0001 0001 0000 0000 0000   (按位与结果)
+ 
+
+           
+
+           0x87654321
+           1000 0111 0110 0101 0100 0011 0010 0001
+           左移2位  
+           0001 1101 1001 0101 0000 1100 1000 0100
+
+            
+
+           与上~mask 
+           1100 1100 1100 1100 1100 1100 1100 1100
+           后 变为 
+           0000 1100 1000 0100 0000 1100 1000 0100
+
+           0000 1100 1000 0100 0000 1100 1000 0100
+
+           再或操作变为
+           0010 0001 0001 0001 0001 0000 0000 0000
+           0000 1100 1000 0100 0000 1100 1000 0100
+            
+           0010 1101 1001 0101 0001 1100 1000 0100
+           也就是0x2D951C84
+
+          和1000 0111 0110 0101 0100 0011 0010 0001 对比
+           也就是二位交换下
+
+
+           第五轮：
+           0x2D951C84
+          
+           0010 1101 1001 0101 0001 1100 1000 0100
+            右移1位 
+           0001 0110 1100 1010 1000 1110 0100 0010
+ 
+            
+           与上mask
+           0101 0101 0101 0101 0101 0101 0101 0101
+           变为
+           0001 0100 0100 0000 0000 0100 0100 0000
+           
+           
+           0x2D951C84
+           0010 1101 1001 0101 0001 1100 1000 0100
+           左移1位  
+           0101 1011 0010 1010 0011 1001 0000 1000
+
+            
+
+           与上~mask 
+           1010 1010 1010 1010 1010 1010 1010 1010
+           后 变为 
+           0000 1010 0010 1010 0010 1000 0000 1000
+ 
+           再或操作变为
+           0001 0100 0100 0000 0000 0100 0100 0000
+           0000 1010 0010 1010 0010 1000 0000 1000
+            
+           0001 1110 0110 1010 0010 1100 0100 1000
+
+           也就是和0x12345678反了
+           0001 0010 0011 0100 0101 0110 0111 1000
+            
+         */
         v = ((v >> s) & mask) | ((v << s) & ~mask);
     }
     return v;
@@ -1213,19 +1394,27 @@ static unsigned long rev(unsigned long v) {
 /* dictScan() is used to iterate over the elements of a dictionary.
  *
  * Iterating works the following way:
+ * 迭代以以下方式工作
  *
  * 1) Initially you call the function using a cursor (v) value of 0.
+ * 1）首先，您会使用值为 0 的游标（v）来调用该函数
  * 2) The function performs one step of the iteration, and returns the
  *    new cursor value you must use in the next call.
- * 3) When the returned cursor is 0, the iteration is complete.当返回的游标为0时，迭代完成
+ *    该函数执行一次迭代操作，并返回您在下一次调用中必须使用的新的游标值。
+ * 3) When the returned cursor is 0, the iteration is complete.当
+ * 3）返回的游标为0时，迭代完成
  *
  * The function guarantees all elements present in the
  * dictionary get returned between the start and end of the iteration.
  * However it is possible some elements get returned multiple times.
+ * 该函数确保在迭代过程中，字典中所有的元素都会被返回，
+ * 且返回的范围是从起始位置到结束位置。 但有可能某些元素会被多次返回。
  *
  * For every element returned, the callback argument 'fn' is
  * called with 'privdata' as first argument and the dictionary entry
  * 'de' as second argument.
+ * 对于返回的每一个元素，
+ * 回调参数“fn”都会以“privdata”作为第一个参数，并以字典项“de”作为第二个参数进行调用。
  *
  * HOW IT WORKS.
  *
@@ -1234,36 +1423,60 @@ static unsigned long rev(unsigned long v) {
  * bits. That is, instead of incrementing the cursor normally, the bits
  * of the cursor are reversed, then the cursor is incremented, and finally
  * the bits are reversed again.
+ * 该迭代算法是由皮特·诺尔杜希斯设计的。
+    其核心思想是从高位开始逐步递增一个指针。
+    也就是说，不是像常规那样递增指针，而是先将指针的位进行反转，然后递增指针，最后再将位反转回去。
  *
  * This strategy is needed because the hash table may be resized between
  * iteration calls.
+ * 采用这种策略是必要的，因为哈希表在每次迭代调用之间可能会被重新调整大小。
  *
+ * 在 dict.c 中的哈希表的大小总是 2 的幂次方，
+ * 并且它们采用链式存储方式，因此给定表中元素的位置可通过计算
+ *   Hash(key) 与 SIZE - 1 的按位与运算得出
+ * （其中 SIZE - 1 总是相当于对键的哈希值与 SIZE 的除法结果取余数的掩码）
  * dict.c hash tables are always power of two in size, and they
  * use chaining, so the position of an element in a given table is given
  * by computing the bitwise AND between Hash(key) and SIZE-1
  * (where SIZE-1 is always the mask that is equivalent to taking the rest
  *  of the division between the Hash of the key and SIZE).
  *
+ *  例如，如果当前哈希表的大小为 16，那么掩码就是（以二进制形式表示）1111。
+ * 一个键在哈希表中的位置始终是哈希输出的最后四位，以此类推。
  * For example if the current hash table size is 16, the mask is
  * (in binary) 1111. The position of a key in the hash table will always be
  * the last four bits of the hash output, and so forth.
  *
  * WHAT HAPPENS IF THE TABLE CHANGES IN SIZE?
+ * 如果表改变了大小会发生什么
  *
+ * 如果哈希表的容量增大，元素可以随机存放在旧桶的任意位置，且位置间隔为旧桶容量的整数倍：
+ * 例如，假设我们已经使用一个 4 位的游标 1100 进行了遍历（掩码为 1111，因为哈希表的大小为 16）
  * If the hash table grows, elements can go anywhere in one multiple of
  * the old bucket: for example let's say we already iterated with
  * a 4 bit cursor 1100 (the mask is 1111 because hash table size = 16).
  *
+ * 如果哈希表的容量将扩大至 64 个元素，那么新的掩码将为 111111。
+ * 通过将“??1100”替换为 0 或 1 而获得的新桶，
+ * 只能针对我们在扫描较小的哈希表中的“1100”桶时已经访问过的键进行定位。
  * If the hash table will be resized to 64 elements, then the new mask will
  * be 111111. The new buckets you obtain by substituting in ??1100
  * with either 0 or 1 can be targeted only by keys we already visited
  * when scanning the bucket 1100 in the smaller hash table.
  *
+ * 通过先处理高位，由于采用了反向计数器，因此即使表的大小变大，光标也无需重新开始。
+ * 它将继续使用游标进行迭代，
+ * 但不会在末尾加上“1100”，并且也不会采用已经探索过的最后 4 位的任何其他组合形式。
  * By iterating the higher bits first, because of the inverted counter, the
  * cursor does not need to restart if the table size gets bigger. It will
  * continue iterating using cursors without '1100' at the end, and also
  * without any other combination of the final 4 bits already explored.
  *
+ * 同样地，当表格的大小随着时间逐渐缩小（例如从 16 到 8），
+ * 如果低三位的组合（对于大小为 8 的掩码是 0111）
+ * 已经完全被探索过，那么就不会再对其进行访问了，
+ * 因为我们可以确定我们已经尝试过例如 0111 和 1111（更高位的所有变体）这些组合，
+ * 所以我们无需再次对其进行测试。
  * Similarly when the table size shrinks over time, for example going from
  * 16 to 8, if a combination of the lower three bits (the mask for size 8
  * is 111) were already completely explored, it would not be visited again
@@ -1272,6 +1485,9 @@ static unsigned long rev(unsigned long v) {
  *
  * WAIT... YOU HAVE *TWO* TABLES DURING REHASHING!
  *
+ * 是的，这是正确的，但我们总是先处理较小的表，然后对当前游标在较大表中的所有扩展情况进行测试。
+ * 例如，如果当前游标是 101，而我们还有一个大小为 16 的较大表，我们也会在较大表中测试 (0)101 和 (1)101。
+ * 这样就把问题又简化回只有一个表的情况，其中较大的表（如果存在的话）只是较小表的扩展版本。
  * Yes, this is true, but we always iterate the smaller table first, then
  * we test all the expansions of the current cursor into the larger
  * table. For example if the current cursor is 101 and we also have a
@@ -1281,18 +1497,24 @@ static unsigned long rev(unsigned long v) {
  *
  * LIMITATIONS
  *
+ * 这个迭代器是完全无状态的，这是一个极大的优势，因为它不需要额外的内存占用。
  * This iterator is completely stateless, and this is a huge advantage,
  * including no additional memory used.
  *
  * The disadvantages resulting from this design are:
+ * 这种设计所带来的弊端是：
  *
  * 1) It is possible we return elements more than once. However this is usually
  *    easy to deal with in the application level.
+ *    有可能我们会对某些元素进行多次引用。不过这种情况在应用层面通常是比较容易处理的。
  * 2) The iterator must return multiple elements per call, as it needs to always
  *    return all the keys chained in a given bucket, and all the expansions, so
  *    we are sure we don't miss keys moving during rehashing.
+ *   该迭代器每次调用时必须返回多个元素，因为它需要始终返回给定桶中所有链接的键以及所有扩展项，
+ *   这样我们就能确保不会遗漏在重新哈希过程中移动的键。
  * 3) The reverse cursor is somewhat hard to understand at first, but this
  *    comment is supposed to help.
+ *   反向游标一开始可能有点难以理解，但这条说明应该能有所帮助。
  *    
  */
 /* https://www.jianshu.com/p/2f31881bf847 dictScan 讨论 */
@@ -1307,6 +1529,7 @@ unsigned long dictScan(dict *d,
 
     if (dictSize(d) == 0) return 0;
 
+    /*不在rehash的时候*/
     if (!dictIsRehashing(d)) {
         t0 = &(d->ht[0]);
 
@@ -1314,6 +1537,7 @@ unsigned long dictScan(dict *d,
         m0 = t0->sizemask;
 
         /* Emit entries at cursor */
+        /*在光标处输出条目*/
         de = t0->table[v & m0];
         while (de) {
             //回调函数
@@ -1337,6 +1561,52 @@ unsigned long dictScan(dict *d,
         /* ~m0 对二进制数进行按位取反操作时，即将所有的0变成1，所有的1变成0*/
         v |= ~m0;
 
+        /*
+          0000 1010  = 10
+          |
+          1111 0000
+          = 
+          1111 1010 
+          反
+          0101 1111
+        
+          加1 
+          0110 0000
+          再反
+          0000 0110 = 6
+
+          0000 0110
+          |
+          1111 0000
+          = 
+          1111 0110
+          反
+          0110 1111
+        
+          加1 
+          0111 0000
+          再反
+          0000 1110 = 14
+
+          0000 1110 = 14
+          |
+          1111 0000
+          = 
+          1111 1110
+          反
+          0111 1111
+        
+          加1 
+          1000 0000
+          再反
+          0000 0001 = 1
+        */
+
+        /*
+          从高位扫描的时候，如果槽位是2^N个,扫描的临近的2个元素都是与2^(N-1)相关的就是说同模的，
+          比如槽位8时，0%4 == 4%4， 1%4 == 5%4 ， 因此想到其实hash的时候，跟模是很相关的。
+ 
+        */
         /*增加反向 cursor*/
         /* Increment the reverse cursor */
         v = rev(v);
@@ -1410,6 +1680,7 @@ unsigned long dictScan(dict *d,
 /* ------------------------- private functions ------------------------------ */
 
 /* Expand the hash table if needed */
+/* 如有需要，可扩展哈希表。 */
 static int _dictExpandIfNeeded(dict *d)
 {
     /*增量rehash 正在运行 就返回DICT_OK 0*/
@@ -1448,6 +1719,7 @@ static int _dictExpandIfNeeded(dict *d)
 }
 
 /* Our hash table capability is a power of two */
+/*我们的哈希表容量是 2 的幂次方。*/
 static unsigned long _dictNextPower(unsigned long size)
 {
     unsigned long i = DICT_HT_INITIAL_SIZE;
@@ -1474,6 +1746,10 @@ static int _dictKeyIndex(dict *d, const void *key)
     dictEntry *he;
 
     //先调用 _dictExpandIfNeeded ，检查两个哈希表是否有足够的空间容纳新元素：
+    /*
+       一开始 d->ht[0].size == 0 所以会触发
+       dictExpand(d, DICT_HT_INITIAL_SIZE)
+    */
     /* Expand the hash table if needed */
     if (_dictExpandIfNeeded(d) == DICT_ERR)
         return -1;

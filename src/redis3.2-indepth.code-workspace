@@ -29,6 +29,9 @@
 		},
 		{
 			"path": "../../cproject/redis5.0.14"
+		},
+		{
+			"path": "../../cproject/redis7.4.4"
 		}
 	],
 	"settings": {
