@@ -1488,6 +1488,7 @@ static unsigned long rev(unsigned long v) {
  * 是的，这是正确的，但我们总是先处理较小的表，然后对当前游标在较大表中的所有扩展情况进行测试。
  * 例如，如果当前游标是 101，而我们还有一个大小为 16 的较大表，我们也会在较大表中测试 (0)101 和 (1)101。
  * 这样就把问题又简化回只有一个表的情况，其中较大的表（如果存在的话）只是较小表的扩展版本。
+ * 因为 1101 在 表大小为8的情况下 和 0101 在同一个桶中，
  * Yes, this is true, but we always iterate the smaller table first, then
  * we test all the expansions of the current cursor into the larger
  * table. For example if the current cursor is 101 and we also have a
@@ -1495,7 +1496,7 @@ static unsigned long rev(unsigned long v) {
  * table. This reduces the problem back to having only one table, where
  * the larger one, if it exists, is just an expansion of the smaller one.
  *
- * LIMITATIONS
+ * LIMITATIONS 限制
  *
  * 这个迭代器是完全无状态的，这是一个极大的优势，因为它不需要额外的内存占用。
  * This iterator is completely stateless, and this is a huge advantage,
@@ -1506,7 +1507,7 @@ static unsigned long rev(unsigned long v) {
  *
  * 1) It is possible we return elements more than once. However this is usually
  *    easy to deal with in the application level.
- *    有可能我们会对某些元素进行多次引用。不过这种情况在应用层面通常是比较容易处理的。
+ *    有可能我们会多次返回同一个元素。不过这种情况在应用层面通常是比较容易处理的。
  * 2) The iterator must return multiple elements per call, as it needs to always
  *    return all the keys chained in a given bucket, and all the expansions, so
  *    we are sure we don't miss keys moving during rehashing.
@@ -1562,6 +1563,7 @@ unsigned long dictScan(dict *d,
         v |= ~m0;
 
         /*
+          m0为 16的情况下
           0000 1010  = 10
           |
           1111 0000
@@ -1628,6 +1630,7 @@ unsigned long dictScan(dict *d,
         t0 = &d->ht[0];
         t1 = &d->ht[1];
 
+        /*确保 to 比 t1 x小*/
         /* Make sure t0 is the smaller and t1 is the bigger table */
         if (t0->size > t1->size) {
             t0 = &d->ht[1];

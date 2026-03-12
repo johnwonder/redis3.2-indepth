@@ -50,6 +50,9 @@
  * 
  */
 //#include "server.h"
+/*
+  包括该系统所能支持的最出色的多路复用层。以下各项应按照性能由高到低的顺序排列。
+*/
 /* Include the best multiplexing layer supported by this system.
  * The following should be ordered by performances, descending. */
 #ifdef HAVE_EVPORT
@@ -70,7 +73,7 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     aeEventLoop *eventLoop;
     int i;
 
-    if ((eventLoop = zmalloc(sizeof(*eventLoop))) == NULL) goto err;
+    if ((eventLoop = zmalloc(sizeof(*eventLoop))) == NULL) goto err; //分配出错直接跳到err 执行释放
     eventLoop->events = zmalloc(sizeof(aeFileEvent)*setsize);
     //为触发事件分配空间
     eventLoop->fired = zmalloc(sizeof(aeFiredEvent)*setsize);
@@ -86,13 +89,18 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     if (aeApiCreate(eventLoop) == -1) goto err;
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */
+    /*
+      具有 mask == AE_NONE 值的事件未被设置。所以让我们用这个值来初始化这个向量。
+
+      malloc 只分配空间不初始化?
+    */
     for (i = 0; i < setsize; i++)
         eventLoop->events[i].mask = AE_NONE; /*结构体指针 用数组下标访问*/
     return eventLoop;
 
 err:
     if (eventLoop) {
-        zfree(eventLoop->events);
+        zfree(eventLoop->events); //内部会判断传入的指针是否已经为NULL
         zfree(eventLoop->fired);
         zfree(eventLoop);
     }
@@ -109,13 +117,24 @@ int aeGetSetSize(aeEventLoop *eventLoop) {
  * there is already a file descriptor in use that is >= the requested
  * set size minus one, AE_ERR is returned and the operation is not
  * performed at all.
+ * 调整事件循环的最大集合大小。如果请求的集合大小小于当前集合大小，
+ * 但存在一个正在使用的文件描述符，
+ * 其值大于请求的集合大小减一，则返回 AE_ERR 错误，并且整个操作不会执行。
  *
  * Otherwise AE_OK is returned and the operation is successful. */
 int aeResizeSetSize(aeEventLoop *eventLoop, int setsize) {
     int i;
 
     if (setsize == eventLoop->setsize) return AE_OK;
+    //如果请求的集合大小小于当前集合大小 ,但是 已经有一个描述符 大于setsize
     if (eventLoop->maxfd >= setsize) return AE_ERR;
+
+    /*select模式下 只判断 setsize >= FD_SETSIZE */
+    /*epoll 下是会调整 aeApiState 的events*/
+    /*
+       aeApiState *state = eventLoop->apidata;
+       state->events = zrealloc(state->events, sizeof(struct epoll_event)*setsize);
+    */
     if (aeApiResize(eventLoop,setsize) == -1) return AE_ERR;
 
     eventLoop->events = zrealloc(eventLoop->events,sizeof(aeFileEvent)*setsize);
@@ -123,7 +142,9 @@ int aeResizeSetSize(aeEventLoop *eventLoop, int setsize) {
     eventLoop->setsize = setsize;
 
     /* Make sure that if we created new slots, they are initialized with
-     * an AE_NONE mask. */
+     * an AE_NONE mask. 
+       请务必确保，如果我们创建了新的槽位，那么这些槽位会以“AE_NONE”掩码进行初始化。
+     */
     for (i = eventLoop->maxfd+1; i < setsize; i++)
         eventLoop->events[i].mask = AE_NONE;
     return AE_OK;
@@ -187,6 +208,7 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 
         for (j = eventLoop->maxfd-1; j >= 0; j--)
             if (eventLoop->events[j].mask != AE_NONE) break;
+        //更新maxfd为j
         eventLoop->maxfd = j;
     }
 }
@@ -249,10 +271,11 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
 int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
 {
     aeTimeEvent *te = eventLoop->timeEventHead;
+    //从header开始循环
     while(te) {
         if (te->id == id) {
-            te->id = AE_DELETED_EVENT_ID;
-            return AE_OK;
+            te->id = AE_DELETED_EVENT_ID; //变为-1
+            return AE_OK; //直接返回了
         }
         te = te->next;
     }
@@ -305,7 +328,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
     int processed = 0;
     aeTimeEvent *te, *prev;
     long long maxId;
-    /* 当前时间 */
+    /* 获取当前时间 */
     time_t now = time(NULL);
 
     /*
@@ -382,7 +405,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
             //修改当前时间事件的执行时间并重复利用当前的时间事件；
             //返回不等于-1的 那么就不会删除这个事件
             //https://draveness.me/redis-eventloop/
-            if (retval != AE_NOMORE) {
+            if (retval != AE_NOMORE) {//一次性事件
                 //serverLog(LL_WARNING,"serverCron返回%d",retval);
                 //printf("serverCron返回%d",retval);
                 //这里加上返回默认的100

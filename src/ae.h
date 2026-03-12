@@ -38,9 +38,9 @@
 #define AE_OK 0
 #define AE_ERR -1
 
-#define AE_NONE 0       /* No events registered. */
-#define AE_READABLE 1   /* Fire when descriptor is readable. */
-#define AE_WRITABLE 2   /* Fire when descriptor is writable. */
+#define AE_NONE 0       /* No events registered. 没有事件注册 */
+#define AE_READABLE 1   /* Fire when descriptor is readable.  当描述符可读时触发 */
+#define AE_WRITABLE 2   /* Fire when descriptor is writable.  当描述符可写时触发 */
 
 /**跟WRITEABLE一起使用，如果READABLE事件已经在同一事件循环迭代中激发，则永远不要激发事件。
  * 当您希望在发送回复之前将内容保存到磁盘上，并且希望以组的方式这样做时，这很有用。*/
@@ -50,12 +50,12 @@
                            things to disk before sending replies, and want
                            to do that in a group fashion. */
 
-#define AE_FILE_EVENTS 1
-#define AE_TIME_EVENTS 2
-#define AE_ALL_EVENTS (AE_FILE_EVENTS|AE_TIME_EVENTS)
-#define AE_DONT_WAIT 4
+#define AE_FILE_EVENTS 1 /*文件事件*/
+#define AE_TIME_EVENTS 2 /* 时间事件 */
+#define AE_ALL_EVENTS (AE_FILE_EVENTS|AE_TIME_EVENTS) /*所有事件*/
+#define AE_DONT_WAIT 4 /*不等待*/
 
-#define AE_NOMORE -1
+#define AE_NOMORE -1 
 #define AE_DELETED_EVENT_ID -1
 
 /* Macros */
@@ -70,19 +70,25 @@ typedef void aeEventFinalizerProc(struct aeEventLoop *eventLoop, void *clientDat
 typedef void aeBeforeSleepProc(struct aeEventLoop *eventLoop);
 
 /* File event structure */
+/*
+ aeFileEvent 中并没有记录文件描述 fd 的属性。POSIX 标准对文件描述符 fd 有下面的约束：
+● 值为 0、1、2 的文件描述符，分别表示标准输入、标准输出和错误输出，是固定的
+● 每次新打开的文件描述符，必须使用当前进程中最小可用的文件描述符
+ 
+*/
 typedef struct aeFileEvent {
-    int mask; /* one of AE_(READABLE|WRITABLE|BARRIER) */
-    aeFileProc *rfileProc; /*读文件处理 */
-    aeFileProc *wfileProc; /*写文件处理 */
+    int mask; /* one of AE_(READABLE|WRITABLE|BARRIER)  读 写 屏障*/
+    aeFileProc *rfileProc; /*读文件处理 函数指针 */
+    aeFileProc *wfileProc; /*写文件处理 函数指针 */
     void *clientData;
 } aeFileEvent;
 
 /* Time event structure */
 typedef struct aeTimeEvent {
-    long long id; /* time event identifier. */
-    long when_sec; /* seconds */
-    long when_ms; /* milliseconds */
-    aeTimeProc *timeProc;
+    long long id; /* time event identifier.  时间事件标识符*/
+    long when_sec; /* seconds 秒 */
+    long when_ms; /* milliseconds  毫秒*/
+    aeTimeProc *timeProc; /*时间处理器*/
     aeEventFinalizerProc *finalizerProc;
     void *clientData;
     struct aeTimeEvent *next; /*存储下一个时间事件*/
@@ -104,6 +110,13 @@ typedef struct aeEventLoop {
     int setsize; /* max number of file descriptors tracked */ /*最大跟踪文件描述符数*/
     long long timeEventNextId;
     time_t lastTime;     /* Used to detect system clock skew 用于检测系统时钟偏差 */
+    /*
+      Redis 充分利用文件描述的这些特点，定义了一个数组 aeEventLoop.events 来存储已注册的文件事件。
+      数组的索引就是文件描述符的值，数组元素则是该文件描述符上注册的文件事件，
+      例如 aeEventLoop.events[886] 存放了值为 886 的文件描述符的文件事件 aeFileEvent。
+      当该文件描述符发生了 aeFileEventMask 指定的事件时，就会调用 aeFileEvent.rfileProc 或者 aeFileEvent.wfileProc 函数来处理事件
+    
+    */
     aeFileEvent *events; /* Registered events */ /*存储监听的文件事件*/
     aeFiredEvent *fired; /* Fired events */ /*存储待处理的文件事件*/
     aeTimeEvent *timeEventHead; /*存储监听的时间事件 头部指针*/

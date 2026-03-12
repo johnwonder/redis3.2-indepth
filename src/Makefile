@@ -20,6 +20,10 @@
 # := 定义时立即展开 值固定
 release_hdr := $(shell sh -c './mkreleasehdr.sh')
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
+
+# 如果您希望某个变量仅在尚未设置其值时才被赋予特定值，
+# 那么您可以使用简写运算符“？=”而非“=”。
+# 对于变量“FOO”这两种设置是完全相同的（请参阅“起源函数”）
 #If you’d like a variable to be set to a value only if it’s not already set, 
 #then you can use the shorthand operator ‘?=’ instead of ‘=’. These two settings of the variable ‘FOO’ are identical (see The origin Function):
 OPTIMIZATION?=-O2

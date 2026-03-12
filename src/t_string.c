@@ -309,13 +309,14 @@ void getrangeCommand(client *c) {
     }
 
     /* Convert negative indexes */
+    /*如果start 和end都小于0  但是 start大于end 那就 直接返回*/
     if (start < 0 && end < 0 && start > end) {
         addReply(c,shared.emptybulk);
         return;
     }
-    if (start < 0) start = strlen+start;
+    if (start < 0) start = strlen+start; //直接抵消 比如 strlen=11 start  -11 那就从0开始
     if (end < 0) end = strlen+end;
-    if (start < 0) start = 0;
+    if (start < 0) start = 0; //start不能小于0
     if (end < 0) end = 0;
     if ((unsigned long long)end >= strlen) end = strlen-1;
 

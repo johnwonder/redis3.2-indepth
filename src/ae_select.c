@@ -39,6 +39,7 @@ typedef struct aeApiState {
     fd_set _rfds, _wfds;
 } aeApiState;
 
+/*创建完 eventLoop后 调用*/
 static int aeApiCreate(aeEventLoop *eventLoop) {
     aeApiState *state = zmalloc(sizeof(aeApiState));
 

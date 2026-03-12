@@ -2446,7 +2446,7 @@ void initServer(void) {
     createSharedObjects();
     //设置合适的maxclients
     adjustOpenFilesLimit();
-    //默认值为10000 + 128
+    //默认值为10000 + 128 = 10128
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
     //根据服务器配置的数据库数量分配数据库空间
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);

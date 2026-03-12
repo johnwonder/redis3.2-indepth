@@ -30,6 +30,10 @@
 /* Every time the Redis Git SHA1 or Dirty status changes only this small
  * file is recompiled, as we access this information in all the other
  * files using this functions. */
+/*
+  每次 Redis Git 的 SHA1 校验码或脏状态发生变化时，
+  只会重新编译这个小文件，因为我们通过这些函数在所有其他文件中获取了该信息。
+*/
 
 #include <string.h>
 

@@ -117,7 +117,7 @@ void zlibc_free(void *ptr) {
 //换句话说，它计算 _n 除以 sizeof(long) 的余数，但是通过位运算来实现，这样通常更快。
 //sizeof(long) - (_n & (sizeof(long) - 1))：这个表达式计算的是 _n 需要增加多少才能成为 sizeof(long) 的倍数。
 //如果 _n 已经是 sizeof(long) 的倍数，这个表达式的结果将是 sizeof(long)；否则，它将是一个小于 sizeof(long) 的正数。
-//比如__n等于7 那么 7&7 > 0  __n += 8 -
+//比如__n等于7 那么 7&7 > 0  __n += 8 - 7
 #define update_zmalloc_stat_free(__n) do { \
     size_t _n = (__n); \
     if (_n&(sizeof(long)-1)) _n += sizeof(long)-(_n&(sizeof(long)-1)); \

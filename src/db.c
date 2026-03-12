@@ -676,6 +676,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         privdata[0] = keys;
         privdata[1] = o;
         do {
+            /*循环处理*/
             cursor = dictScan(ht, cursor, scanCallback, privdata);
         } while (cursor &&
               maxiterations-- &&
