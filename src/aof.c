@@ -81,7 +81,7 @@ void aofRewriteBufferReset(void) {
     if (server.aof_rewrite_buf_blocks)
         listRelease(server.aof_rewrite_buf_blocks);
 
-    server.aof_rewrite_buf_blocks = listCreate();
+    server.aof_rewrite_buf_blocks = listCreate();//创建一个新的列表
     listSetFreeMethod(server.aof_rewrite_buf_blocks,zfree);
 }
 
@@ -89,7 +89,7 @@ void aofRewriteBufferReset(void) {
 unsigned long aofRewriteBufferSize(void) {
     listNode *ln;
     listIter li;
-    unsigned long size = 0;
+    unsigned long size = 0; //用unsigned long 类型
 
     listRewind(server.aof_rewrite_buf_blocks,&li);
     while((ln = listNext(&li))) {
@@ -99,6 +99,10 @@ unsigned long aofRewriteBufferSize(void) {
     return size;
 }
 
+/*
+用于将数据发送至执行 AOF 重写操作的子进程的事件处理程序。
+我们发送 AOF 差异缓冲区的片段，以便在子进程完成重写操作后进行最终写入时，数据量会较小。
+*/
 /* Event handler used to send data to the child process doing the AOF
  * rewrite. We send pieces of our AOF differences buffer so that the final
  * write when the child finishes the rewrite will be small. */
@@ -112,52 +116,77 @@ void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(mask);
 
     while(1) {
+
+        /*从缓存链表中读取*/
         ln = listFirst(server.aof_rewrite_buf_blocks);
+
+        //链表的一个节点就是一个块
         block = ln ? ln->value : NULL;
+
+        //停止 或者没有块了。
+        //收到子进程发送的停止命令后 会把aof_stop_sending_diff置为1
         if (server.aof_stop_sending_diff || !block) {
             aeDeleteFileEvent(server.el,server.aof_pipe_write_data_to_child,
                               AE_WRITABLE);
-            return;
+            return; //直接返回
         }
+
+        /*如果块的使用大于0*/
         if (block->used > 0) {
+
+            /*写到管道里 供子进程读取*/
             nwritten = write(server.aof_pipe_write_data_to_child,
                              block->buf,block->used);
             if (nwritten <= 0) return;
+            //由src所指内存区域复制count个字节到dest所指内存区域。
             memmove(block->buf,block->buf+nwritten,block->used-nwritten);
             block->used -= nwritten;
-            block->free += nwritten;
+            block->free += nwritten; /*空闲的增加*/
         }
         if (block->used == 0) listDelNode(server.aof_rewrite_buf_blocks,ln);
     }
 }
 
+/*追加数据到AOF重写缓冲区，如果需要就分配新的块。*/
 /* Append data to the AOF rewrite buffer, allocating new blocks if needed. */
 void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
+
+    /*获取最后一个节点 也就是tail节点*/
     listNode *ln = listLast(server.aof_rewrite_buf_blocks);
+
+    /* void* 隐式转换为aofrwblock类型的指针*/
     aofrwblock *block = ln ? ln->value : NULL;
 
     while(len) {
+        /*如果我们已经获取到了至少一个分配好的区块，那就尝试向其中添加至少一部分内容。*/
         /* If we already got at least an allocated block, try appending
          * at least some piece into it. */
         if (block) {
+
+            /*获取需要拷贝的长度*/
             unsigned long thislen = (block->free < len) ? block->free : len;
+
+            /*说明当前块没有满*/
             if (thislen) {  /* The current block is not already full. */
+                //把s拷贝到 used处
                 memcpy(block->buf+block->used, s, thislen);
-                block->used += thislen;
-                block->free -= thislen;
-                s += thislen;
-                len -= thislen;
+                block->used += thislen;  //使用的增多
+                block->free -= thislen; //空闲减少
+                s += thislen; // s指针偏移
+                len -= thislen;  //len减少
             }
         }
 
+        /*第一个块需分配，或者需要另外一个块*/
         if (len) { /* First block to allocate, or need another block. */
             int numblocks;
-
+            //分配一个块的空间
             block = zmalloc(sizeof(*block));
             block->free = AOF_RW_BUF_BLOCK_SIZE;
             block->used = 0;
             listAddNodeTail(server.aof_rewrite_buf_blocks,block);
 
+            /*每10次 或者100个块的时候 记录下，分别是注意或者警告*/
             /* Log every time we cross more 10 or 100 blocks, respectively
              * as a notice or warning. */
             numblocks = listLength(server.aof_rewrite_buf_blocks);
@@ -486,18 +515,26 @@ sds catAppendOnlyGenericCommand(sds dst, int argc, robj **argv) {
     robj *o;
 
     buf[0] = '*';
+    //从第二个元素起算长度，长度放入buf中 因为第一个元素是*
     len = 1+ll2string(buf+1,sizeof(buf)-1,argc);
     buf[len++] = '\r';
     buf[len++] = '\n';
+
+    //把buf追加到 dst，现在buf中存的是命令的个数
     dst = sdscatlen(dst,buf,len);
 
+    /* 翻译一个个命令 */
     for (j = 0; j < argc; j++) {
+
         o = getDecodedObject(argv[j]);
         buf[0] = '$';
+        //当前命令字符串的长度
         len = 1+ll2string(buf+1,sizeof(buf)-1,sdslen(o->ptr));
         buf[len++] = '\r';
         buf[len++] = '\n';
         dst = sdscatlen(dst,buf,len);
+
+        //真实命令字符串
         dst = sdscatlen(dst,o->ptr,sdslen(o->ptr));
         dst = sdscatlen(dst,"\r\n",2);
         decrRefCount(o);
@@ -508,6 +545,8 @@ sds catAppendOnlyGenericCommand(sds dst, int argc, robj **argv) {
 /* Create the sds representation of an PEXPIREAT command, using
  * 'seconds' as time to live and 'cmd' to understand what command
  * we are translating into a PEXPIREAT.
+ * 根据“秒”设定时间生存期，并使用“cmd”来确定我们要将其转换为“PEXPRIREAT”命令的具体内容，
+ * 从而创建“sds”表示形式的“PEXPRIREAT”命令。
  *
  * This command is used in order to translate EXPIRE and PEXPIRE commands
  * into PEXPIREAT command so that we retain precision in the append only
@@ -517,18 +556,29 @@ sds catAppendOnlyExpireAtCommand(sds buf, struct redisCommand *cmd, robj *key, r
     robj *argv[3];
 
     /* Make sure we can use strtoll */
+    /*内部会把整数编码的转换成字符串*/
     seconds = getDecodedObject(seconds);
+
+    /*字符串转换为整数*/
     when = strtoll(seconds->ptr,NULL,10);
     /* Convert argument into milliseconds for EXPIRE, SETEX, EXPIREAT */
     if (cmd->proc == expireCommand || cmd->proc == setexCommand ||
         cmd->proc == expireatCommand)
     {
-        when *= 1000;
+        when *= 1000; //统一变毫秒
     }
     /* Convert into absolute time for EXPIRE, PEXPIRE, SETEX, PSETEX */
     if (cmd->proc == expireCommand || cmd->proc == pexpireCommand ||
         cmd->proc == setexCommand || cmd->proc == psetexCommand)
     {
+        /*
+          这些命令是相对时间（N 秒 / N 毫秒后过期）：
+            EXPIRE
+            PEXPIRE
+            SETEX
+            PSETEX
+            相对时间 + 当前时间 = 绝对时间戳
+        */
         when += mstime();
     }
     decrRefCount(seconds);
@@ -538,23 +588,31 @@ sds catAppendOnlyExpireAtCommand(sds buf, struct redisCommand *cmd, robj *key, r
     argv[2] = createStringObjectFromLongLong(when);
     buf = catAppendOnlyGenericCommand(buf, 3, argv);
     decrRefCount(argv[0]);
-    decrRefCount(argv[2]);
+    decrRefCount(argv[2]); 
+    /*第二参数不需要 降低引用计数，因为属于外面的操作*/
     return buf;
 }
 
 /*
  在 propagate 方法中调用
+
+ 喂给aof文件
 */
 void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int argc) {
     sds buf = sdsempty();
     robj *tmpargv[3];
 
+    /*
+      此命令所针对的数据库与我们上一个命令所使用的数据库并不相同。需要执行一个“SELECT”命令。
+    */
     /* The DB this command was targeting is not the same as the last command
      * we appended. To issue a SELECT command is needed. */
     if (dictid != server.aof_selected_db) {
         char seldb[64];
 
         snprintf(seldb,sizeof(seldb),"%d",dictid);
+
+        //选择数据库的命令
         buf = sdscatprintf(buf,"*2\r\n$6\r\nSELECT\r\n$%lu\r\n%s\r\n",
             (unsigned long)strlen(seldb),seldb);
         server.aof_selected_db = dictid;
@@ -562,6 +620,8 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
 
     if (cmd->proc == expireCommand || cmd->proc == pexpireCommand ||
         cmd->proc == expireatCommand) {
+
+        /* 过期命令 */
         /* Translate EXPIRE/PEXPIRE/EXPIREAT into PEXPIREAT */
         buf = catAppendOnlyExpireAtCommand(buf,cmd,argv[1],argv[2]);
     } else if (cmd->proc == setexCommand || cmd->proc == psetexCommand) {
@@ -569,9 +629,9 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
         tmpargv[0] = createStringObject("SET",3);
         tmpargv[1] = argv[1];
         tmpargv[2] = argv[3];
-        buf = catAppendOnlyGenericCommand(buf,3,tmpargv);
+        buf = catAppendOnlyGenericCommand(buf,3,tmpargv); //set命令
         decrRefCount(tmpargv[0]);
-        buf = catAppendOnlyExpireAtCommand(buf,cmd,argv[1],argv[2]);
+        buf = catAppendOnlyExpireAtCommand(buf,cmd,argv[1],argv[2]); //PEXPIREAT命令
     } else if (cmd->proc == setCommand && argc > 3) {
         int i;
         robj *exarg = NULL, *pxarg = NULL;
@@ -589,6 +649,10 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
             buf = catAppendOnlyExpireAtCommand(buf,server.pexpireCommand,argv[1],
                                                pxarg);
     } else {
+
+        /*
+          所有其他命令无需翻译，或者其翻译内容已在命令向量中预先设定好，用于实现复制操作即可。
+        */
         /* All the other commands don't need translation or need the
          * same translation already operated in the command vector
          * for the replication itself. */
@@ -596,12 +660,27 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
     }
 
     /*追加到AOF缓存中，这将在重新进入事件循环之前在磁盘上刷新 因此，在客户端得到关于所执行操作的肯定回复之前*/
+    
+    /*
+      将数据追加到 AOF 缓冲区中。在重新进入事件循环之前，这些数据将被写入磁盘，
+      因此在客户端收到关于所执行操作的肯定回复之前，这些数据就已经被写入了。
+    */
     /* Append to the AOF buffer. This will be flushed on disk just before
      * of re-entering the event loop, so before the client will get a
      * positive reply about the operation performed. */
     if (server.aof_state == AOF_ON)
         server.aof_buf = sdscatlen(server.aof_buf,buf,sdslen(buf));
 
+    /*
+      如果正在进行后台aof的重写操作，我们需要将子数据库与当前数据库之间的差异暂存于缓冲区中，
+      
+      以便在子进程完成其工作时，我们可以将这些差异附加到新的只追加文件中。
+    
+      也就是放到server.aof_rewrite_buf_blocks 中
+
+
+      然后内部创建一个写事件，写到管道里 供重写子进程读取
+    */
     /* If a background append only file rewriting is in progress we want to
      * accumulate the differences between the child DB and the current one
      * in a buffer, so that when the child process will do its work we
@@ -631,6 +710,8 @@ struct client *createFakeClient(void) {
     c->bufpos = 0;
     c->flags = 0;
     c->btype = BLOCKED_NONE;
+
+    /* 设置了这个标记后 redis不会尝试发送回复给这个客户端*/
     /* We set the fake client as a slave waiting for the synchronization
      * so that Redis will not try to send replies to this client. */
     c->replstate = SLAVE_STATE_WAIT_BGSAVE_START;
@@ -1063,6 +1144,7 @@ ssize_t aofReadDiffFromParent(void) {
     char buf[65536]; /* Default pipe buffer size on most Linux systems. */
     ssize_t nread, total = 0;
 
+    /*从管道读父进程的数据*/
     while ((nread =
             read(server.aof_pipe_read_data_from_parent,buf,sizeof(buf))) > 0) {
         server.aof_child_diff = sdscatlen(server.aof_child_diff,buf,nread);
@@ -1071,6 +1153,10 @@ ssize_t aofReadDiffFromParent(void) {
     return total;
 }
 
+/*
+编写一组命令，能够将数据集完全重新写入“文件名”中。此命令同时适用于 REWRITEAOF 和 BGREWRITEAOF 。
+ 
+*/
 /* Write a sequence of commands able to fully rebuild the dataset into
  * "filename". Used both by REWRITEAOF and BGREWRITEAOF.
  *
@@ -1089,9 +1175,11 @@ int rewriteAppendOnlyFile(char *filename) {
     char byte;
     size_t processed = 0;
 
+    /* 注意和rewriteAppendOnlyFileBackground()函数中的不同 */
     /* Note that we have to use a different temp name here compared to the
      * one used by rewriteAppendOnlyFileBackground() function. */
     snprintf(tmpfile,256,"temp-rewriteaof-%d.aof", (int) getpid());
+    /*开启一个临时文件*/
     fp = fopen(tmpfile,"w");
     if (!fp) {
         serverLog(LL_WARNING, "Opening the temp file for AOF rewrite in rewriteAppendOnlyFile(): %s", strerror(errno));
@@ -1100,8 +1188,17 @@ int rewriteAppendOnlyFile(char *filename) {
 
     server.aof_child_diff = sdsempty();
     rioInitWithFile(&aof,fp);
+    /*如果开启了重写过程中逐步fsync 默认是开启的 */
     if (server.aof_rewrite_incremental_fsync)
         rioSetAutoSync(&aof,AOF_AUTOSYNC_BYTES);
+
+    
+    /*
+        逻辑上：完全独立，不共享
+        物理上：读共享、写复制（COW）
+        行为上：子进程是 fork 瞬间的内存快照
+    */
+    /*开启重写 ，遍历每个数据库*/
     for (j = 0; j < server.dbnum; j++) {
         char selectcmd[] = "*2\r\n$6\r\nSELECT\r\n";
         redisDb *db = server.db+j;
@@ -1168,6 +1265,9 @@ int rewriteAppendOnlyFile(char *filename) {
         di = NULL;
     }
 
+    /*
+      在父进程仍在发送数据的情况下，先进行一次较慢的 fsync 操作，以便使接下来的最终 fsync 操作能够更快完成。
+    */
     /* Do an initial slow fsync here while the parent is still sending
      * data, in order to make the next final fsync faster. */
     if (fflush(fp) == EOF) goto werr;
@@ -1193,6 +1293,7 @@ int rewriteAppendOnlyFile(char *filename) {
     }
 
     /* Ask the master to stop sending diffs. */
+    /* 请让master停止发送差异文件。 */
     if (write(server.aof_pipe_write_ack_to_parent,"!",1) != 1) goto werr;
     if (anetNonBlock(NULL,server.aof_pipe_read_ack_from_parent) != ANET_OK)
         goto werr;
@@ -1271,10 +1372,17 @@ void aofChildPipeReadable(aeEventLoop *el, int fd, void *privdata, int mask) {
  * and two other pipes used by the children to signal it finished with
  * the rewrite so no more data should be written, and another for the
  * parent to acknowledge it understood this new condition. */
+/*
+ 在重写过程中创建用于父进程与子进程间进程间通信的管道。
+ 我们有一个数据管道用于将 AOF 增量差异发送给子进程，
+ 另外还有两个管道供子进程使用，用于告知父进程重写已完成，不再需要写入更多数据，
+ 还有一个管道供父进程确认已理解这一新情况。
+*/
 int aofCreatePipes(void) {
     int fds[6] = {-1, -1, -1, -1, -1, -1};
     int j;
 
+    /*一个管道有 2 个 fd（读端、写端）*/
     if (pipe(fds) == -1) goto error; /* parent -> children data. */
     if (pipe(fds+2) == -1) goto error; /* children -> parent ack. */
     if (pipe(fds+4) == -1) goto error; /* children -> parent ack. */
@@ -1283,10 +1391,10 @@ int aofCreatePipes(void) {
     if (anetNonBlock(NULL,fds[1]) != ANET_OK) goto error;
     if (aeCreateFileEvent(server.el, fds[2], AE_READABLE, aofChildPipeReadable, NULL) == AE_ERR) goto error;
 
-    server.aof_pipe_write_data_to_child = fds[1];
-    server.aof_pipe_read_data_from_parent = fds[0];
+    server.aof_pipe_write_data_to_child = fds[1]; /*写数据到子进程端*/
+    server.aof_pipe_read_data_from_parent = fds[0]; /*从父进程读数据的读端*/
     server.aof_pipe_write_ack_to_parent = fds[3];
-    server.aof_pipe_read_ack_from_child = fds[2];
+    server.aof_pipe_read_ack_from_child = fds[2];/*从aof_pipe_write_ack_to_parent写过来的数据中读*/
     server.aof_pipe_write_ack_to_child = fds[5];
     server.aof_pipe_read_ack_from_parent = fds[4];
     server.aof_stop_sending_diff = 0;
@@ -1316,15 +1424,17 @@ void aofClosePipes(void) {
 
 /* This is how rewriting of the append only file in background works:
  *
- * 1) The user calls BGREWRITEAOF
+ * 1) The user calls BGREWRITEAOF 用户主动调用BGREWRITEAOF
  * 2) Redis calls this function, that forks():
- *    2a) the child rewrite the append only file in a temp file.
- *    2b) the parent accumulates differences in server.aof_rewrite_buf.
- * 3) When the child finished '2a' exists.
+ *    2a) the child rewrite the append only file in a temp file. 子进程重写aof文件到一个临时文件
+ *    2b) the parent accumulates differences in server.aof_rewrite_buf. 父进程在 server.aof_rewrite_buf 中累积了差异。
+ * 3) When the child finished '2a' exists. 当子进程完成写临时文件
  * 4) The parent will trap the exit code, if it's OK, will append the
  *    data accumulated into server.aof_rewrite_buf into the temp file, and
  *    finally will rename(2) the temp file in the actual file name.
  *    The the new file is reopened as the new append only file. Profit!
+ * 父进程会捕获退出码。如果一切正常，它会将累积的数据从“server.aof_rewrite_buf”缓冲区写入临时文件中，
+ * 最后会将该临时文件重命名为实际文件名。然后，新文件将被重新打开，作为新的只追加文件。大功告成！
  */
 int rewriteAppendOnlyFileBackground(void) {
     pid_t childpid;
@@ -1340,6 +1450,8 @@ int rewriteAppendOnlyFileBackground(void) {
         closeListeningSockets(0);
         redisSetProcTitle("redis-aof-rewrite");
         snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
+
+        //当前在子进程里重写aof文件
         if (rewriteAppendOnlyFile(tmpfile) == C_OK) {
             size_t private_dirty = zmalloc_get_private_dirty();
 
@@ -1354,7 +1466,7 @@ int rewriteAppendOnlyFileBackground(void) {
         }
     } else {
         /* Parent */
-        server.stat_fork_time = ustime()-start;
+        server.stat_fork_time = ustime()-start; /*开始复制的时间*/
         server.stat_fork_rate = (double) zmalloc_used_memory() * 1000000 / server.stat_fork_time / (1024*1024*1024); /* GB per second. */
         latencyAddSampleIfNeeded("fork",server.stat_fork_time/1000);
         if (childpid == -1) {
@@ -1368,6 +1480,8 @@ int rewriteAppendOnlyFileBackground(void) {
             "Background append only file rewriting started by pid %d",childpid);
         server.aof_rewrite_scheduled = 0;
         server.aof_rewrite_time_start = time(NULL);
+
+        /*记录下子进程的ID*/
         server.aof_child_pid = childpid;
         updateDictResizePolicy();
         /* We set appendseldb to -1 in order to force the next call to the
@@ -1498,6 +1612,8 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         /* Rename the temporary file. This will not unlink the target file if
          * it exists, because we reference it with "oldfd". */
         latencyStartMonitor(latency);
+
+        /*重命名文件*/
         if (rename(tmpfile,server.aof_filename) == -1) {
             serverLog(LL_WARNING,
                 "Error trying to rename the temporary AOF file %s into %s: %s",
@@ -1564,7 +1680,7 @@ cleanup:
     aofClosePipes();
     aofRewriteBufferReset();
     aofRemoveTempFile(server.aof_child_pid);
-    server.aof_child_pid = -1;
+    server.aof_child_pid = -1; /*这时候置为-1*/
     server.aof_rewrite_time_last = time(NULL)-server.aof_rewrite_time_start;
     server.aof_rewrite_time_start = -1;
     /* Schedule a new rewrite if we are waiting for it to switch the AOF ON. */

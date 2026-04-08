@@ -298,13 +298,13 @@ int ll2string(char* dst, size_t dstlen, long long svalue) {
         negative = 0;
     }
 
-    /* Check length. */
+    /* Check length. */ /* digits10(value) 函数返回value需要的长度*/
     uint32_t const length = digits10(value)+negative;
     if (length >= dstlen) return 0;
 
     /* Null term. */
     uint32_t next = length;
-    dst[next] = '\0';
+    dst[next] = '\0'; //先分配null
     next--;
     while (value >= 100) {
         int const i = (value % 100) * 2;
@@ -316,7 +316,7 @@ int ll2string(char* dst, size_t dstlen, long long svalue) {
 
     /* Handle last 1-2 digits. */
     if (value < 10) {
-        dst[next] = '0' + (uint32_t) value;
+        dst[next] = '0' + (uint32_t) value; //'0' + 5  = 48 + 5 = 53  → 对应字符 '5'
     } else {
         int i = (uint32_t) value * 2;
         dst[next] = digits[i + 1];

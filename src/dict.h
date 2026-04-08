@@ -114,7 +114,7 @@ typedef struct dict {
     // 类型处理函数的私有数据指针，7.0 (#9228) 中被移除
     void *privdata;
     //// 两个哈希表，平常只有一个 ht[0] 提供服务，另一个用于 rehashing
-    dictht ht[2]; // 每个字典使用两个哈希表（用于渐增式 rehash）
+    dictht ht[2]; // 每个字典使用两个哈希表（用于渐增式 rehash） 不是指针
     //// 记录rehash的进度，-1 代表未进行
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */ // 指示 rehash 是否正在进行，如果不是则为 -1
      // 正在运行的安全迭代器数量，这个在 6.2 (#8515) 中被修改为 pauserehash

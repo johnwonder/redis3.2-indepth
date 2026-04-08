@@ -301,6 +301,7 @@ int _addReplyToBuffer(client *c, const char *s, size_t len) {
     /* Check that the buffer has enough space available for this string. */
     if (len > available) return C_ERR;
     //memcpy严格根据第三个参数指定的‌字节数‌进行复制，不主动检查或处理\0字符
+    //所以s字符数组中间有\0字符 也会复制到c->buf中
     memcpy(c->buf+c->bufpos,s,len);
 
     //增加位置

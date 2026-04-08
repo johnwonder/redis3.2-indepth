@@ -1532,7 +1532,9 @@ unsigned long dictScan(dict *d,
 
     /*不在rehash的时候*/
     if (!dictIsRehashing(d)) {
-        t0 = &(d->ht[0]);
+
+
+        t0 = &(d->ht[0]); //用括号包起来
 
         //其中m0、m1为当前哈希表大小减一，rev是二进制逆序
         m0 = t0->sizemask;
@@ -1563,19 +1565,20 @@ unsigned long dictScan(dict *d,
         v |= ~m0;
 
         /*
-          m0为 16的情况下
-          0000 1010  = 10
-          |
-          1111 0000
-          = 
-          1111 1010 
-          反
-          0101 1111
+          m0为 16的情况下      m0为8的情况
+          0000 1010  = 10     0000 1100 = 12    0000 0100 = 4
+          |                   |                 |
+          1111 0000           1111 0000         1111 0000
+          =                                     
+          1111 1010           1111 1100         1111 0100
+          反                                    反
+          0101 1111           0011 1111         0010 1111
         
-          加1 
-          0110 0000
+          加1                 加1 
+          0110 0000           0100 0000         0011 0000
+
           再反
-          0000 0110 = 6
+          0000 0110 = 6       0000 0010 = 2     0000 1100 = 12
 
           0000 0110
           |
@@ -1654,6 +1657,9 @@ unsigned long dictScan(dict *d,
          */
         /* Iterate over indices in larger table that are the expansion
          * of the index pointed to by the cursor in the smaller table */
+        /*
+          对较大表中的索引进行遍历，这些索引是较小表中游标所指向的索引的扩展版本。
+        */
         do {
             /* Emit entries at cursor */
        
@@ -1669,6 +1675,28 @@ unsigned long dictScan(dict *d,
             v = rev(v);
             v++;
             v = rev(v);
+
+            /*
+               m0为 4的情况下 m1 为8的情况
+                0000 0011  = 3  0000 0111 = 7
+                |
+                1111 1000   
+                = 
+                1111 1011    1111 1111
+                反
+                1101 1111    1111 1111
+                
+                加1 
+                1110 0000   0000 0000
+
+                再反
+                0000 0111 = 7  0000 0000
+            
+                m0 ^ m1 = 0011 ^ 0111 = 0100
+
+
+                原来3号的 要么迁移到 3 号 要么迁移到7号了
+            */
 
             /* m1=0x111，m0=0x011 */
             /* m0 ^ m1 = 0x100 */
@@ -1758,6 +1786,7 @@ static int _dictKeyIndex(dict *d, const void *key)
         return -1;
     /* Compute the key hash value */
     h = dictHashKey(d, key);
+    /**/
     for (table = 0; table <= 1; table++) {
         idx = h & d->ht[table].sizemask;
         /* Search if this slot does not already contain the given key */
@@ -1767,6 +1796,7 @@ static int _dictKeyIndex(dict *d, const void *key)
                 return -1;
             he = he->next;
         }
+        /**/
         if (!dictIsRehashing(d)) break;
     }
     return idx;
@@ -1804,11 +1834,13 @@ size_t _dictGetStatsHt(char *buf, size_t bufsize, dictht *ht, int tableid) {
             "No stats available for empty dictionaries\n");
     }
 
+    /*计算 状态*/
     /* Compute stats. */
     for (i = 0; i < DICT_STATS_VECTLEN; i++) clvector[i] = 0;
     for (i = 0; i < ht->size; i++) {
         dictEntry *he;
 
+        /*  */
         if (ht->table[i] == NULL) {
             clvector[0]++;
             continue;
@@ -1817,10 +1849,13 @@ size_t _dictGetStatsHt(char *buf, size_t bufsize, dictht *ht, int tableid) {
         /* For each hash entry on this slot... */
         chainlen = 0;
         he = ht->table[i];
+        /**/
         while(he) {
+            /* 长度 */
             chainlen++;
             he = he->next;
         }
+        /* */
         clvector[(chainlen < DICT_STATS_VECTLEN) ? chainlen : (DICT_STATS_VECTLEN-1)]++;
         if (chainlen > maxchainlen) maxchainlen = chainlen;
         totchainlen += chainlen;
@@ -1862,9 +1897,11 @@ void dictGetStats(char *buf, size_t bufsize, dict *d) {
     l = _dictGetStatsHt(buf,bufsize,&d->ht[0],0);
     buf += l;
     bufsize -= l;
+    /*正在rehash 且bufsize 大于0 */
     if (dictIsRehashing(d) && bufsize > 0) {
         _dictGetStatsHt(buf,bufsize,&d->ht[1],1);
     }
+    /*确保最后又一个NULL字节*/
     /* Make sure there is a NULL term at the end. */
     if (orig_bufsize) orig_buf[orig_bufsize-1] = '\0';
 }

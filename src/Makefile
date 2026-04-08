@@ -197,6 +197,7 @@ persist-settings: distclean
 
 #如果需要定义一个伪目标，我们可以直接使用Makefile语法支持的关键字：.PHONY,这个关键词显式地指定一个伪目标。
 
+# PHONY 单词本身就是假的意思
 #它的使用方式是这样的：
 #.PHONY : clean
 #clean:
@@ -273,6 +274,7 @@ $(REDIS_CHECK_AOF_NAME): $(REDIS_CHECK_AOF_OBJ)
 
 #$< 是一个自动变量，它代表当前规则中的第一个依赖文件名
 #$，它代表所有的依赖文件
+# -c 参数 只编译不链接
 # Because the jemalloc.h header is generated as a part of the jemalloc build,
 # building it should complete before building any other object. Instead of
 # depending on a single artifact, build all dependencies first.

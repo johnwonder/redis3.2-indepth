@@ -112,12 +112,17 @@ static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
     retval = fwrite(buf,len,1,r->io.file.fp);
     r->io.file.buffered += len;
 
+    /*当有autosync 且当前bufferd的大于等于autosync时就刷盘*/
     if (r->io.file.autosync &&
         r->io.file.buffered >= r->io.file.autosync)
     {
+        /*因为 fwrite 不是直接写磁盘，而是先写到内存缓冲区。 */
+
+        /* fflush不管缓冲区满没满 → 立刻强制刷到磁盘 */
         fflush(r->io.file.fp);
+        /*fflush 只保证写到操作系统缓冲区，不保证真正写入磁盘硬件。要绝对保证硬件落盘，还需要 fsync(int fd)。*/
         aof_fsync(fileno(r->io.file.fp));
-        r->io.file.buffered = 0;
+        r->io.file.buffered = 0; //重置为0
     }
     return retval;
 }
@@ -152,8 +157,8 @@ static const rio rioFileIO = {
 
 void rioInitWithFile(rio *r, FILE *fp) {
     *r = rioFileIO;
-    r->io.file.fp = fp;
-    r->io.file.buffered = 0;
+    r->io.file.fp = fp; //指定用文件
+    r->io.file.buffered = 0;//
     r->io.file.autosync = 0;
 }
 

@@ -986,7 +986,7 @@ struct redisServer {
     time_t aof_rewrite_time_start;  /* 当前AOF的重写开始时间 Current AOF rewrite start time. */
     int aof_lastbgrewrite_status;   /* C_OK or C_ERR */
     unsigned long aof_delayed_fsync;  /* delayed AOF fsync() counter */
-    int aof_rewrite_incremental_fsync;/* fsync incrementally while rewriting? */
+    int aof_rewrite_incremental_fsync;/* 在重写过程中逐步执行 fsync 操作？ fsync incrementally while rewriting? */
     int aof_last_write_status;      /* C_OK or C_ERR */
     int aof_last_write_errno;       /* Valid if aof_last_write_status is ERR */
     int aof_load_truncated;         /* Don't stop on unexpected AOF EOF. */
@@ -1056,10 +1056,10 @@ struct redisServer {
     char *masterhost;               /* 主服务的地址 Hostname of master */
     int masterport;                 /* 主服务端口 Port of master */
     int repl_timeout;               /* Timeout after N seconds of master idle */
-    client *master;     /* Client that is master for this slave */
-    client *cached_master; /* Cached master to be reused for PSYNC. */
-    int repl_syncio_timeout; /* Timeout for synchronous I/O calls */
-    int repl_state;          /* Replication status if the instance is a slave */
+    client *master;     /* 从机的主机 Client that is master for this slave */
+    client *cached_master; /*缓存的主机 Cached master to be reused for PSYNC. */
+    int repl_syncio_timeout; /*同步IO调用的超时时间 Timeout for synchronous I/O calls */
+    int repl_state;          /* 实例时从机的时候的复制状态 Replication status if the instance is a slave */
     off_t repl_transfer_size; /* Size of RDB to read from master during sync. */
     off_t repl_transfer_read; /* Amount of RDB read from master during sync. */
     off_t repl_transfer_last_fsync_off; /* Offset when we fsync-ed last time. */
@@ -1068,7 +1068,7 @@ struct redisServer {
     char *repl_transfer_tmpfile; /* Slave-> master SYNC temp file name */
     time_t repl_transfer_lastio; /* Unix time of the latest read, for timeout */
     int repl_serve_stale_data; /* Serve stale data when link is down? */
-    int repl_slave_ro;          /* Slave is read only? */
+    int repl_slave_ro;          /*从机是只读的 Slave is read only? */
     time_t repl_down_since; /* Unix time at which link with master went down */
     int repl_disable_tcp_nodelay;   /* Disable TCP_NODELAY after SYNC? */
     int slave_priority;             /* Reported in INFO and used by Sentinel. */
@@ -1141,7 +1141,7 @@ struct redisServer {
     int lua_repl;         /* Script replication flags for redis.set_repl(). */
     int lua_timedout;     /* 如果达到脚本执行的时间限制，则为True True if we reached the time limit for script
                              execution. */
-    int lua_kill;         /* Kill the script if true. */
+    int lua_kill;         /*如果是true就杀死脚本 Kill the script if true. */
     int lua_always_replicate_commands; /* 默认复制类型 Default replication type. */
     /* Latency monitor */
     long long latency_monitor_threshold;

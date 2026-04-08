@@ -192,26 +192,26 @@ typedef struct clusterState {
  * while MEET is a special PING that forces the receiver to add the sender
  * as a node (if it is not already in the list). */
 #define CLUSTERMSG_TYPE_PING 0          /* Ping */
-#define CLUSTERMSG_TYPE_PONG 1          /* Pong (reply to Ping) */
+#define CLUSTERMSG_TYPE_PONG 1          /* 答复Ping的 Pong (reply to Ping) */
 #define CLUSTERMSG_TYPE_MEET 2          /* Meet "let's join" message */
 #define CLUSTERMSG_TYPE_FAIL 3          /* Mark node xxx as failing */
 #define CLUSTERMSG_TYPE_PUBLISH 4       /* Pub/Sub Publish propagation */
-#define CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST 5 /* May I failover? */
+#define CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST 5 /* 我能故障转移吗 May I failover? */
 #define CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK 6     /* Yes, you have my vote */
-#define CLUSTERMSG_TYPE_UPDATE 7        /* Another node slots configuration */
+#define CLUSTERMSG_TYPE_UPDATE 7        /* 另外一个节点槽位配置 Another node slots configuration */
 #define CLUSTERMSG_TYPE_MFSTART 8       /* Pause clients for manual failover */
 
 /* Initially we don't know our "name", but we'll find it once we connect
  * to the first node, using the getsockname() function. Then we'll use this
  * address for all the next messages. */
 typedef struct {
-    char nodename[CLUSTER_NAMELEN];
-    uint32_t ping_sent;
+    char nodename[CLUSTER_NAMELEN]; /*集群节点名字*/
+    uint32_t ping_sent; /**/
     uint32_t pong_received;
-    char ip[NET_IP_STR_LEN];  /* IP address last time it was seen */
+    char ip[NET_IP_STR_LEN];  /* 最后一次被看到的ip地址 IP address last time it was seen */
     uint16_t port;              /* port last time it was seen */
     uint16_t flags;             /* node->flags copy */
-    uint16_t notused1;          /* Some room for future improvements. */
+    uint16_t notused1;          /* 将来改进的空间 Some room for future improvements. */
     uint32_t notused2;
 } clusterMsgDataGossip;
 

@@ -35,6 +35,8 @@
  *----------------------------------------------------------------------------*/
 
 static int checkStringLength(client *c, long long size) {
+
+    /*如果大小大于 512mb 就回复客户端错误*/
     if (size > 512*1024*1024) {
         addReplyError(c,"string exceeds maximum allowed size (512MB)");
         return C_ERR;
@@ -226,12 +228,14 @@ void getsetCommand(client *c) {
     server.dirty++;
 }
 
+/*SETRANGE key1 6 "Redis"*/
 void setrangeCommand(client *c) {
     robj *o;
     long offset;
     //要设置的新值
     sds value = c->argv[3]->ptr;
 
+    /*获取输入的offset值*/
     if (getLongFromObjectOrReply(c,c->argv[2],&offset,NULL) != C_OK)
         return;
 
@@ -239,7 +243,7 @@ void setrangeCommand(client *c) {
         addReplyError(c,"offset is out of range");
         return;
     }
-
+    /*查找key是否可以写*/
     o = lookupKeyWrite(c->db,c->argv[1]);
     if (o == NULL) {
         /* Return 0 when setting nothing on a non-existing string */
@@ -248,30 +252,36 @@ void setrangeCommand(client *c) {
             return;
         }
 
+        /*如果字符串超过允许大小就返回*/
         /* Return when the resulting string exceeds allowed size */
         if (checkStringLength(c,offset+sdslen(value)) != C_OK)
             return;
 
+        /*创建字符串对象*/
         o = createObject(OBJ_STRING,sdsnewlen(NULL, offset+sdslen(value)));
         dbAdd(c->db,c->argv[1],o);
     } else {
         size_t olen;
 
+        /*检查类型*/
         /* Key exists, check type */
         if (checkType(c,o,OBJ_STRING))
             return;
 
         /* Return existing string length when setting nothing */
         olen = stringObjectLen(o);
+        /*当设置为空时 返回当前字符串的长度*/
         if (sdslen(value) == 0) {
             addReplyLongLong(c,olen);
             return;
         }
 
+        /*如果超过允许的大小就直接返回， 内部有返回客户端*/
         /* Return when the resulting string exceeds allowed size */
         if (checkStringLength(c,offset+sdslen(value)) != C_OK)
             return;
 
+        /*创建一个拷贝 当对象是共享或者是编码过的*/
         /* Create a copy when the object is shared or encoded. */
         o = dbUnshareStringValue(c->db,c->argv[1],o);
     }
@@ -280,6 +290,8 @@ void setrangeCommand(client *c) {
         o->ptr = sdsgrowzero(o->ptr,offset+sdslen(value));
         memcpy((char*)o->ptr+offset,value,sdslen(value));
         signalModifiedKey(c->db,c->argv[1]);
+
+        /*通知键空间事件*/
         notifyKeyspaceEvent(NOTIFY_STRING,
             "setrange",c->argv[1],c->db->id);
         server.dirty++;

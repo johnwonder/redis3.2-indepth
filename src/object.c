@@ -560,7 +560,7 @@ robj *tryObjectEncoding(robj *o) {
 /* 
 
     获取已编码对象的解码版本（作为新对象返回）。
-    如果对象已经是原始编码的，只需增加ref计数。
+    如果对象已经是原始编码的 比如raw 和 embstr，只需增加ref计数。
     Get a decoded version of an encoded object (returned as a new object).
  * If the object is already raw-encoded just increment the ref count. */
 robj *getDecodedObject(robj *o) {

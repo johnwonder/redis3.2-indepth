@@ -111,8 +111,15 @@ static inline char sdsReqType(size_t string_size) {
  *
  * You can print the string with printf() as there is an implicit \0 at the
  * end of the string. However the string is binary safe and can contain
- * \0 characters in the middle, as the length is stored in the sds header. */
+ * \0 characters in the middle, as the length is stored in the sds header. 
+ * 
+ * 你能用printf打印字符串，因为有隐式的\0字符在字符串末尾。
+ * 但是这个字符串是二进制安全的，可以在中间包含\0字符，因为长度存储在sds头部。
+ * 
+ * */
 sds sdsnewlen(const void *init, size_t initlen) {
+
+    /*sds头结构体指针*/
     void *sh;
     sds s;
 

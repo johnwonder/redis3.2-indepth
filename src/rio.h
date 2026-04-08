@@ -69,9 +69,9 @@ struct _rio {
         } buffer;
         /* Stdio file pointer target. */
         struct {
-            FILE *fp;
-            off_t buffered; /* Bytes written since last fsync. */
-            off_t autosync; /* fsync after 'autosync' bytes written. */
+            FILE *fp; //// 文件IO 指针
+            off_t buffered; /* 自上次执行 fsync 操作以来所写入的字节数 Bytes written since last fsync. */
+            off_t autosync; /* 在写入“自动同步”字节数量之后执行 fsync 操作 fsync after 'autosync' bytes written. */
         } file;
         /* Multiple FDs target (used to write to N sockets). */
         struct {

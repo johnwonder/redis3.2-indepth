@@ -158,6 +158,7 @@ void freeReplicationBacklog(void) {
     server.repl_backlog = NULL;
 }
 
+/*添加数据到复制backlog*/
 /* Add data to the replication backlog.
  * This function also increments the global replication offset stored at
  * server.master_repl_offset, because there is no case where we want to feed
@@ -165,6 +166,7 @@ void freeReplicationBacklog(void) {
 void feedReplicationBacklog(void *ptr, size_t len) {
     unsigned char *p = ptr;
 
+    /*主库当前的全局偏移量（最新数据的偏移量）。*/
     server.master_repl_offset += len;
 
     /*
@@ -194,6 +196,7 @@ void feedReplicationBacklog(void *ptr, size_t len) {
         server.repl_backlog_histlen = server.repl_backlog_size;
     //更新第一个字节的位移
     //7.0使用
+    /*缓冲区中最旧有效数据的偏移量 */
     /* Set the offset of the first byte we have in the backlog. */
     server.repl_backlog_off = server.master_repl_offset -
                               server.repl_backlog_histlen + 1;

@@ -286,6 +286,8 @@ static int anetSetReuseAddr(char *err, int fd) {
 
 static int anetCreateSocket(char *err, int domain) {
     int s;
+
+    /**/
     if ((s = socket(domain, SOCK_STREAM, 0)) == -1) {
         anetSetError(err, "creating socket: %s", strerror(errno));
         return ANET_ERR;
@@ -293,6 +295,9 @@ static int anetCreateSocket(char *err, int domain) {
 
     /* Make sure connection-intensive things like the redis benchmark
      * will be able to close/open sockets a zillion of times */
+     /*
+       SO_REUSEADDR 的核心是允许复用处于 TIME_WAIT 状态的端口，以及「同一端口绑定到多个套接字（仅特定场景）」
+     */
     if (anetSetReuseAddr(err,s) == ANET_ERR) {
         close(s);
         return ANET_ERR;
@@ -390,9 +395,11 @@ int anetTcpConnect(char *err, char *addr, int port)
 
 int anetTcpNonBlockConnect(char *err, char *addr, int port)
 {
+    /*内部有createSocket */
     return anetTcpGenericConnect(err,addr,port,NULL,ANET_CONNECT_NONBLOCK);
 }
 
+/*集群里用到*/
 int anetTcpNonBlockBindConnect(char *err, char *addr, int port,
                                char *source_addr)
 {

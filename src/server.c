@@ -1559,6 +1559,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         rewriteAppendOnlyFileBackground();
     }
 
+    /*检查是否正在进行的后台保存或 AOF 重写操作已终止。*/
     /* Check if a background saving or AOF rewrite in progress terminated. */
     if (server.rdb_child_pid != -1 || server.aof_child_pid != -1 ||
         ldbPendingChildren())
@@ -1566,10 +1567,17 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         int statloc;
         pid_t pid;
 
+        /*
+          非阻塞模式 Wait No Hangup
+          statloc输出参数：用来存放子进程退出状态（正常退出？被杀死？）
+        */
         if ((pid = wait3(&statloc,WNOHANG,NULL)) != 0) {
+
+            //获取退出码
             int exitcode = WEXITSTATUS(statloc);
             int bysignal = 0;
 
+            /*这行代码是在判断：子进程是 “正常退出”，还是 “被信号杀死（崩溃 / 被干掉）”*/
             if (WIFSIGNALED(statloc)) bysignal = WTERMSIG(statloc);
 
             if (pid == -1) {
@@ -1613,6 +1621,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             {
                 serverLog(LL_NOTICE,"%d changes in %d seconds. Saving...",
                     sp->changes, (int)sp->seconds);
+                /*
+                  后台保存rdb
+                */
                 rdbSaveBackground(server.rdb_filename);
                 break;
             }
@@ -2048,7 +2059,7 @@ void initServerConfig(void) {
     server.repl_backlog_idx = 0; //环形缓冲区的当前偏移
     server.repl_backlog_off = 0;  
     server.repl_backlog_time_limit = CONFIG_DEFAULT_REPL_BACKLOG_TIME_LIMIT;
-    server.repl_no_slaves_since = time(NULL);
+    server.repl_no_slaves_since = time(NULL); /*什么时间开始没slaves*/
 
     /*客户端输出缓存 限制*/
     /* Client output buffer limits */
@@ -2694,6 +2705,7 @@ struct redisCommand *lookupCommandByCString(char *s) {
     return cmd;
 }
 
+/*在本表中查找命令，如果找不到就在原来的表中找*/
 /* Lookup the command in the current table, if not found also check in
  * the original table containing the original command names unaffected by
  * redis.conf rename-command statement.
@@ -2731,6 +2743,8 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
     /*aof*/
     if (server.aof_state != AOF_OFF && flags & PROPAGATE_AOF)
         feedAppendOnlyFile(cmd,dbid,argv,argc);
+
+    /*主从*/
     if (flags & PROPAGATE_REPL)
         replicationFeedSlaves(server.slaves,dbid,argv,argc);
 }
@@ -2771,6 +2785,9 @@ void forceCommandPropagation(client *c, int flags) {
     if (flags & PROPAGATE_AOF) c->flags |= CLIENT_FORCE_AOF;
 }
 
+/*
+  阻止 执行命令 传播，
+*/
 /* Avoid that the executed command is propagated at all. This way we
  * are free to just propagate what we want using the alsoPropagate()
  * API. */
@@ -2866,6 +2883,7 @@ void call(client *c, int flags) {
         !(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN)))
     {
         //复制 当前命令参数 给到监控者们
+        
         replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
     }
 
@@ -2889,6 +2907,8 @@ void call(client *c, int flags) {
 
     //持续时间
     duration = ustime()-start;
+
+    /* 服务器是否 */
     dirty = server.dirty-dirty;
 
     if (dirty < 0) dirty = 0;
@@ -3250,6 +3270,7 @@ int processCommand(client *c) {
           c->argc == 2 &&
           tolower(((char*)c->argv[1]->ptr)[0]) == 'k')) //kill
     {
+        /*标记为事务*/
         flagTransaction(c);
         addReply(c, shared.slowscripterr);
         return C_OK;

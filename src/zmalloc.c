@@ -198,7 +198,7 @@ void *zrealloc(void *ptr, size_t size) {
     newptr = realloc(realptr,size+PREFIX_SIZE);
     if (!newptr) zmalloc_oom_handler(size);
 
-    *((size_t*)newptr) = size;
+    *((size_t*)newptr) = size; //存储新的大小
     update_zmalloc_stat_free(oldsize);
     update_zmalloc_stat_alloc(size);
     return (char*)newptr+PREFIX_SIZE;

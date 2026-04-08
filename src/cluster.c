@@ -5201,9 +5201,11 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     /* Set error code optimistically for the base case. */
     if (error_code) *error_code = CLUSTER_REDIR_NONE;
 
+
     /* We handle all the cases as if they were EXEC commands, so we have
      * a common code path for everything */
     if (cmd->proc == execCommand) {
+        /*如果  */
         /* If CLIENT_MULTI flag is not set EXEC is just going to return an
          * error. */
         if (!(c->flags & CLIENT_MULTI)) return myself;
