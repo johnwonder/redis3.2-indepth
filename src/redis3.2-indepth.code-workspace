@@ -35,6 +35,9 @@
 		},
 		{
 			"path": "../../cproject/redis3.0.7"
+		},
+		{
+			"path": "../../cproject/valkey"
 		}
 	],
 	"settings": {

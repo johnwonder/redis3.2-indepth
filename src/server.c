@@ -466,7 +466,7 @@ void serverLog(int level, const char *fmt, ...) {
  * where we need printf-alike features are served by serverLog(). */
 void serverLogFromHandler(int level, const char *msg) {
     int fd;
-    int log_to_stdout = server.logfile[0] == '\0';
+    int log_to_stdout = server.logfile[0] == '\0';//判断第一个字符是不是空字符来确定是不是写到stdout
     char buf[64];
 
     if ((level&0xff) < server.verbosity || (log_to_stdout && server.daemonize))
@@ -477,6 +477,8 @@ void serverLogFromHandler(int level, const char *msg) {
     //O_WRONLY：以只写模式打开文件。
     //0644 表示文件所有者有读写权限，而组用户和其他用户只有读权限。
     //如果文件不存在，则创建它并设置权限为 0644
+    //STDOUT_FILENO是 POSIX 标准定义的文件描述符宏，仅在类 Unix 系统（Linux、macOS、BSD）、Windows 模拟层（MinGW/WSL）中可用。
+    //必须包含 <unistd.h> 才能使用,server.h头文件中包含了
     fd = log_to_stdout ? STDOUT_FILENO :
                          open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644);
     if (fd == -1) return;
@@ -484,7 +486,11 @@ void serverLogFromHandler(int level, const char *msg) {
     ll2string(buf,sizeof(buf),getpid());
     if (write(fd,buf,strlen(buf)) == -1) goto err;
     if (write(fd,":signal-handler (",17) == -1) goto err;
-    ll2string(buf,sizeof(buf),time(NULL));
+    /*
+      这是 time 函数的简化版本，用于获取当前的系统时间，
+      返回的结果是自 "Epoch"（通常指的是 1970 年 1 月 1 日，UTC 时间）以来经过的秒数。它不接受任何参数，因此无需传递指针。
+    */
+    ll2string(buf,sizeof(buf),time(NULL)); //记录时间
     if (write(fd,buf,strlen(buf)) == -1) goto err;
     if (write(fd,") ",2) == -1) goto err;
     if (write(fd,msg,strlen(msg)) == -1) goto err;
@@ -884,6 +890,9 @@ void updateDictResizePolicy(void) {
  *
  * The parameter 'now' is the current time in milliseconds as is passed
  * to the function to avoid too many gettimeofday() syscalls. */
+
+ /*4.0开始会在 expireSlaveKeys 和 activeExpireCycle 中调用*/
+ /*3.0 只会在activeExpireCycle 中调用*/
 int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
     long long t = dictGetSignedIntegerVal(de);
     if (now > t) {
@@ -900,6 +909,17 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
         /*内部会删除expires字典中的dictEntry*/
         /*和主字典中的dictEntry*/
         dbDelete(db,keyobj);
+
+        /*
+          4.0中放到了expire.c中 会执行 
+
+        if (server.lazyfree_lazy_expire)
+            dbAsyncDelete(db,keyobj);
+        else
+            dbSyncDelete(db,keyobj);
+        */
+
+
 
         /* 通知事件 */
         notifyKeyspaceEvent(NOTIFY_EXPIRED,
@@ -1503,9 +1523,14 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * not ok doing so inside the signal handler. */
     /*
      我们收到了一个SIGTERM，在这里以一种安全的方式关闭，因为在信号处理程序中这样做是不行的
+     //server.shutdown_asap 为1 代表收到了信号 ，但是我看源代码也不一定是SIGTERM信号
+     应该说是除了SIGINT信号外的信号
     */
     if (server.shutdown_asap) {
         if (prepareForShutdown(SHUTDOWN_NOFLAGS) == C_OK) exit(0);
+
+        //发生错误了
+        //已收到SIGTERM信号，但关闭服务器时出现错误，请查阅日志获取更多信息
         serverLog(LL_WARNING,"SIGTERM received but errors trying to shut down the server, check the logs for more information");
         server.shutdown_asap = 0;
     }
@@ -1794,18 +1819,26 @@ void createSharedObjects(void) {
     int j;
 
     shared.crlf = createObject(OBJ_STRING,sdsnew("\r\n")); //换行
+
+    /*单行字符串，以+开头，*/
     shared.ok = createObject(OBJ_STRING,sdsnew("+OK\r\n")); //ok
     shared.err = createObject(OBJ_STRING,sdsnew("-ERR\r\n")); //err
+
+    /*多行字符串，以$开头，*/
     shared.emptybulk = createObject(OBJ_STRING,sdsnew("$0\r\n\r\n")); //$0
     shared.czero = createObject(OBJ_STRING,sdsnew(":0\r\n"));
-    shared.cone = createObject(OBJ_STRING,sdsnew(":1\r\n"));
+    shared.cone = createObject(OBJ_STRING,sdsnew(":1\r\n"));//整数：以:开头，格式为 :<data>\r\n,例如:520\r\n
     shared.cnegone = createObject(OBJ_STRING,sdsnew(":-1\r\n"));
     shared.nullbulk = createObject(OBJ_STRING,sdsnew("$-1\r\n"));
+
+    /*数组，以*开头*/
     shared.nullmultibulk = createObject(OBJ_STRING,sdsnew("*-1\r\n"));
     shared.emptymultibulk = createObject(OBJ_STRING,sdsnew("*0\r\n"));
     shared.pong = createObject(OBJ_STRING,sdsnew("+PONG\r\n"));
     shared.queued = createObject(OBJ_STRING,sdsnew("+QUEUED\r\n"));
     shared.emptyscan = createObject(OBJ_STRING,sdsnew("*2\r\n$1\r\n0\r\n*0\r\n"));
+
+    /* 错误信息，以-开头，格式为 -<data>\r\n */
     shared.wrongtypeerr = createObject(OBJ_STRING,sdsnew(
         "-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"));
     shared.nokeyerr = createObject(OBJ_STRING,sdsnew(
@@ -1998,10 +2031,14 @@ void initServerConfig(void) {
     server.list_compress_depth = OBJ_LIST_COMPRESS_DEPTH;
     //最大整数集合的条目数
     server.set_max_intset_entries = OBJ_SET_MAX_INTSET_ENTRIES;
+
+    /*有序集合*/
     server.zset_max_ziplist_entries = OBJ_ZSET_MAX_ZIPLIST_ENTRIES;
     server.zset_max_ziplist_value = OBJ_ZSET_MAX_ZIPLIST_VALUE;
     server.hll_sparse_max_bytes = CONFIG_DEFAULT_HLL_SPARSE_MAX_BYTES; //3000
     server.shutdown_asap = 0;
+
+    /*主从复制*/
     server.repl_ping_slave_period = CONFIG_DEFAULT_REPL_PING_SLAVE_PERIOD; //ping slave的周期 秒数
     server.repl_timeout = CONFIG_DEFAULT_REPL_TIMEOUT;
     server.repl_min_slaves_to_write = CONFIG_DEFAULT_MIN_SLAVES_TO_WRITE; //写入slave的数量
@@ -2019,7 +2056,7 @@ void initServerConfig(void) {
     server.loading_process_events_interval_bytes = (1024*1024*2); //2mb
     server.lua_time_limit = LUA_SCRIPT_TIME_LIMIT; //lua 脚本的超时时间 默认5秒
 
-    /*lru 过期时钟*/
+    /*lru 过期时钟 4.0 改了*/
     server.lruclock = getLRUClock();
     resetServerSaveParams();
 
@@ -2036,7 +2073,7 @@ void initServerConfig(void) {
     server.masterport = 6379;
     server.master = NULL;
     server.cached_master = NULL;
-    server.repl_master_initial_offset = -1;
+    server.repl_master_initial_offset = -1; //4.0好像名字改了
     server.repl_state = REPL_STATE_NONE;
     server.repl_syncio_timeout = CONFIG_REPL_SYNCIO_TIMEOUT;
     server.repl_serve_stale_data = CONFIG_DEFAULT_SLAVE_SERVE_STALE_DATA;
@@ -2422,8 +2459,10 @@ void initServer(void) {
     int j;
 
     /*https://cloud.tencent.com/developer/article/2081256*/
+    //https://cloud.tencent.com/developer/article/2091710
     //因此，signal(SIGHUP, SIG_IGN); 这行代码的作用是将 SIGHUP 信号的处理设置为忽略。
     //这意味着，当进程接收到 SIGHUP 信号时，它不会终止，而是会继续运行，就像没有接收到任何信号一样。
+    //系统对SIGHUP信号的默认处理是终止收到该信号的进程。所以若程序中没有捕捉该信号，当收到该信号时，进程就会退出。
     signal(SIGHUP, SIG_IGN);
     //‌SIGPIPE是一个在Linux网络编程中常见的信号，当一个进程尝试向一个已关闭的管道或套接字写入数据时，内核会向该进程发送SIGPIPE信号‌。
     //SIGPIPE信号的主要作用是提醒进程注意错误，防止进程因为错误的写操作而崩溃。默认情况下，接收到SIGPIPE信号的进程会终止，这可能导致服务端异常退出，影响业务正常运转，甚至造成数据丢失等问题‌
@@ -2439,7 +2478,7 @@ void initServer(void) {
     }
 
     server.pid = getpid(); //获取pid
-    server.current_client = NULL;
+    server.current_client = NULL; //当前客户端 进入processInputBuffer时会设置
     server.clients = listCreate(); //创建客户端列表
     server.clients_to_close = listCreate();
     server.slaves = listCreate(); //从列表
@@ -2698,6 +2737,8 @@ struct redisCommand *lookupCommand(sds name) {
 
 struct redisCommand *lookupCommandByCString(char *s) {
     struct redisCommand *cmd;
+
+    /*还需要创建一个字符串*/
     sds name = sdsnew(s);
 
     cmd = dictFetchValue(server.commands, name);
@@ -4716,20 +4757,25 @@ static void sigShutdownHandler(int sig) {
     char *msg;
 
     switch (sig) {
-    case SIGINT:
+    case SIGINT: //interrupt
         msg = "Received SIGINT scheduling shutdown...";
         break;
-    case SIGTERM:
+    case SIGTERM: //Software termination signal from kill
         msg = "Received SIGTERM scheduling shutdown...";
         break;
     default:
         msg = "Received shutdown signal, scheduling shutdown...";
+        //如果 default 写在所有 case 最后，后面没有代码，不加 break 完全没问题，也不会穿透。
     };
 
     /* SIGINT is often delivered via Ctrl+C in an interactive session.
      * If we receive the signal the second time, we interpret this as
      * the user really wanting to quit ASAP without waiting to persist
      * on disk. */
+    /*
+      信号情报通常是在交互式会话中通过按“Ctrl+C”来传递的。
+      如果我们在第二次接收到该信号时，仍能接收到它，我们就将其理解为用户真的希望尽快退出，而不愿等待将其保存到磁盘上。
+    */
     if (server.shutdown_asap && sig == SIGINT) {
         serverLogFromHandler(LL_WARNING, "You insist... exiting now.");
         rdbRemoveTempFile(getpid());
@@ -4739,7 +4785,7 @@ static void sigShutdownHandler(int sig) {
     }
 
     serverLogFromHandler(LL_WARNING, msg);
-    server.shutdown_asap = 1;
+    server.shutdown_asap = 1; //这里设置为1
 }
 
 void setupSignalHandlers(void) {
@@ -4800,6 +4846,7 @@ int checkForSentinelMode(int argc, char **argv) {
     return 0;
 }
 
+/*要么加载aof文件 要么加载rdb文件*/
 /* Function called at startup to load RDB or AOF file in memory. */
 void loadDataFromDisk(void) {
     long long start = ustime();
@@ -4807,10 +4854,13 @@ void loadDataFromDisk(void) {
         if (loadAppendOnlyFile(server.aof_filename) == C_OK)
             serverLog(LL_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
     } else {
+
+
         if (rdbLoad(server.rdb_filename) == C_OK) {
             serverLog(LL_NOTICE,"DB loaded from disk: %.3f seconds",
                 (float)(ustime()-start)/1000000);
         } else if (errno != ENOENT) {
+            
             serverLog(LL_WARNING,"Fatal error loading the DB: %s. Exiting.",strerror(errno));
             exit(1);
         }
@@ -5324,6 +5374,7 @@ int main(int argc, char **argv) {
         否则加载rdb文件
         */
         loadDataFromDisk();
+        //
         if (server.cluster_enabled) {
             if (verifyClusterConfigWithData() == C_ERR) {
                 serverLog(LL_WARNING,

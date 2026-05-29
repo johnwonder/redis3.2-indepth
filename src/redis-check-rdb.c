@@ -111,6 +111,8 @@ void rdbCheckError(const char *fmt, ...) {
             rdbstate.rio->processed_bytes : 0), msg);
     printf("[additional info] While doing: %s\n",
         rdb_check_doing_string[rdbstate.doing]);
+
+    
     if (rdbstate.key)
         printf("[additional info] Reading key '%s'\n",
             (char*)rdbstate.key->ptr);
@@ -163,6 +165,7 @@ void rdbCheckHandleCrash(int sig, siginfo_t *info, void *secret) {
 void rdbCheckSetupSignals(void) {
     struct sigaction act;
 
+    /*  */
     sigemptyset(&act.sa_mask);
     act.sa_flags = SA_NODEFER | SA_RESETHAND | SA_SIGINFO;
     act.sa_sigaction = rdbCheckHandleCrash;
@@ -229,6 +232,7 @@ int redis_check_rdb(char *rdbfilename) {
             rdbstate.doing = RDB_CHECK_DOING_READ_TYPE;
             if ((type = rdbLoadType(&rdb)) == -1) goto eoferr;
         } else if (type == RDB_OPCODE_EOF) {
+            /* 文件末尾  */
             /* EOF: End of file, exit the main loop. */
             break;
         } else if (type == RDB_OPCODE_SELECTDB) {

@@ -194,11 +194,16 @@ void setproctitle(const char *fmt, ...);
 #error "Undefined or invalid BYTE_ORDER"
 #endif
 
+/*只有 x86 /x64 /powerpc 架构 + GCC 系列编译器，才继续判断。*/
+/*__GNUC__:只要是 GCC 编译器 或者 兼容 GCC 的编译器（Clang），都会自动定义它！*/
 #if (__i386 || __amd64 || __powerpc__) && __GNUC__
 #define GNUC_VERSION (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__)
-#if defined(__clang__)
+/*如果是 Clang 编译器 → 直接支持原子操作！*/
+#if defined(__clang__) 
 #define HAVE_ATOMIC
 #endif
+/*GCC 版本 ≥ 4.1.0
+GLIBC 版本 ≥ 2.6*/
 #if (defined(__GLIBC__) && defined(__GLIBC_PREREQ))
 #if (GNUC_VERSION >= 40100 && __GLIBC_PREREQ(2, 6))
 #define HAVE_ATOMIC

@@ -85,6 +85,12 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     //embstr：一次 malloc 分配 robj + sdshdr8 + sdslen + \0
     robj *o = zmalloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
     //指针的妙用 + 1 因为o是robj类型的指针  +1 后就是到robj的后面
+    /*
+      现在valkey 是放入robj 里 所以是倒退void*
+      if (o->hasembval) data -= sizeof(void *);
+
+      但是redis8 还是zmalloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
+    */
     struct sdshdr8 *sh = (void*)(o+1);
 
     o->type = OBJ_STRING; //string类型

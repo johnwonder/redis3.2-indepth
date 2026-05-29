@@ -201,6 +201,7 @@ void psetexCommand(client *c) {
 int getGenericCommand(client *c) {
     robj *o;
 
+    /*内部会判断是否过期*/
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL)
         return C_OK;
 

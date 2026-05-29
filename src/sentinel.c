@@ -697,6 +697,8 @@ void sentinelEvent(int level, char *type, sentinelRedisInstance *ri,
     if (level == LL_WARNING && ri != NULL) {
         sentinelRedisInstance *master = (ri->flags & SRI_MASTER) ?
                                          ri : ri->master;
+        
+        //如果有master 且 master有通知脚本
         if (master && master->notification_script) {
             sentinelScheduleScriptExecution(master->notification_script,
                 type,msg,NULL);
@@ -835,6 +837,8 @@ void sentinelRunPendingScripts(void) {
             /* If we are here an error occurred. */
             _exit(2); /* Don't retry execution. */
         } else {
+
+            //在父进程中
             sentinel.running_scripts++;
             sj->pid = pid;
             sentinelEvent(LL_DEBUG,"+script-child",NULL,"%ld",(long)pid);

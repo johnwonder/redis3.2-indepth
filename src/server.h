@@ -882,7 +882,7 @@ struct redisServer {
     dict *orig_commands;        /* 命令重命名前的命令列表 Command table before command renaming. */
     aeEventLoop *el;
     unsigned lruclock:LRU_BITS; /* LRU淘汰时钟 Clock for LRU eviction */
-    int shutdown_asap;          /* SHUTDOWN needed ASAP */
+    int shutdown_asap;          /* 需要尽快结束进程 SHUTDOWN needed ASAP */
     int activerehashing;        /* 在serverCron（）中进行增量散列 Incremental rehash in serverCron() */
     char *requirepass;          /* 验证命令的密码 Pass for AUTH command, or NULL */
     char *pidfile;              /* pid文件路径 PID file path */

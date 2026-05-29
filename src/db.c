@@ -106,6 +106,7 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
 
     /*当expireIfNeeded返回1的时候代表过期了 */
     /*如果当前是slave 那么内部只判断时间是否过期 就返回了*/
+    /*slave的话只判断  if (server.masterhost != NULL) return now > when;//返回值直接是1或者0 */
     if (expireIfNeeded(db,key) == 1) {
 
         /* 键过期。如果我们在master的上下文中，expireIfNeeded 只会在key不存在的时候返回0 */
@@ -138,6 +139,10 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
          *
          * Notably this covers GETs when slaves are used to scale reads. */
         /* 进入processInputBuffer函数设置server.current_client */
+        /*
+           processCommand 里会设置 server.current_client->cmd
+        */
+        /*processInputBuffer 函数第一行就会设置current_client*/
         if (server.current_client &&
             server.current_client != server.master &&
             server.current_client->cmd &&
@@ -1035,7 +1040,7 @@ long long getExpire(redisDb *db, robj *key) {
 void propagateExpire(redisDb *db, robj *key) {
     robj *argv[2];
 
-    argv[0] = shared.del;
+    argv[0] = shared.del; /* 很关键 del命令 */
     argv[1] = key;
     incrRefCount(argv[0]);
     incrRefCount(argv[1]);//这里增加了第二个参数的引用计数
@@ -1043,7 +1048,7 @@ void propagateExpire(redisDb *db, robj *key) {
     if (server.aof_state != AOF_OFF)
         feedAppendOnlyFile(server.delCommand,db->id,argv,2);
 
-    /* 复制 */
+    /* 复制 当前从服务集合 当前选择的数据库id del命令 */
     replicationFeedSlaves(server.slaves,db->id,argv,2);
 
     decrRefCount(argv[0]);
@@ -1100,6 +1105,7 @@ int expireIfNeeded(redisDb *db, robj *key) {
     /*调用info命令的时候显示的过期键的数量*/
     server.stat_expiredkeys++;
     //传播过期 给aof 和 从服务
+    //合成 DEL（第一个参数就是shared.del）、写 AOF、发给从库（db.c）
     propagateExpire(db,key);
 
     /*通知键空间事件*/
@@ -1107,6 +1113,7 @@ int expireIfNeeded(redisDb *db, robj *key) {
         "expired",key,db->id);
     
     //真正删除
+    /*内部会删除expires字典 和 dict 字典*/
     return dbDelete(db,key);
 }
 

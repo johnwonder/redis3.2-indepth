@@ -267,6 +267,8 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         if (dictid < 0 || dictid >= PROTO_SHARED_SELECT_CMDS)
             decrRefCount(selectcmd);
     }
+
+    /*slaveseldb默认为-1*/
     server.slaveseldb = dictid;
 
     //如果支持部分同步的复制囤积
@@ -292,8 +294,10 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
             len = ll2string(aux+1,sizeof(aux)-1,objlen);
             aux[len+1] = '\r';
             aux[len+2] = '\n';
-            feedReplicationBacklog(aux,len+3);
+            feedReplicationBacklog(aux,len+3); //3代表 $ \r \n
             feedReplicationBacklogWithObject(argv[j]);
+
+            //牛逼 直接使用了aux中保存的\r\n两个字符
             feedReplicationBacklog(aux+len+1,2);
         }
     }

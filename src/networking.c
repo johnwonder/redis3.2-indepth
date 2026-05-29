@@ -928,6 +928,8 @@ void unlinkClient(client *c) {
         /* Remove from the list of active clients. */
         ln = listSearchKey(server.clients,c);
         serverAssert(ln != NULL);
+
+        /*在这里 从server.clients中删除*/
         listDelNode(server.clients,ln);
 
         /* Unregister async I/O handlers and close the socket. */
@@ -1655,6 +1657,12 @@ int processMultibulkBuffer(client *c) {
     return C_ERR;
 }
 
+
+/*
+ 
+https://mp.weixin.qq.com/s/NZbo8-01aX7K-3Ba7XC10A
+RESP 的主要目标是:易于实现 (Simple to implement)快速解析 (Fast to parse)内容可读 (Human readable)
+*/
 void processInputBuffer(client *c) {
     //到这里 才会设置当前客户端
     server.current_client = c;
@@ -1709,6 +1717,7 @@ void processInputBuffer(client *c) {
             //inline 
             if (processInlineBuffer(c) != C_OK) break;
         } else if (c->reqtype == PROTO_REQ_MULTIBULK) {
+            /* reqtype 在上面 读取到 *字符时指定 */
             if (processMultibulkBuffer(c) != C_OK) break;
         } else {
             serverPanic("Unknown request type");

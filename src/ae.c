@@ -607,6 +607,8 @@ int aeWait(int fd, int mask, long long milliseconds) {
 void aeMain(aeEventLoop *eventLoop) {
     eventLoop->stop = 0;
     while (!eventLoop->stop) {
+
+        //beforeSleep是进入休眠前执行的逻辑，核心是回写数据到socket
         if (eventLoop->beforesleep != NULL)
             eventLoop->beforesleep(eventLoop);
 
