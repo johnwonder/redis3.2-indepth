@@ -85,9 +85,12 @@ static inline char sdsReqType(size_t string_size) {
     //长度小于32 用SDS_TYPE_5 最大为011111
     //sdshdr5 类型最大可以存储长度为 2 ** 5 - 1 的字符串
 
-    // 1<<5 100000 = 2的5次方 - 1
+    // 1<<5 100000 = 2的5次方 - 1 = 31
     if (string_size < 1<<5)
         return SDS_TYPE_5;
+
+    //也就是小于 256 就使用SDS_TYPE_8
+    /*现在最新的valkey中 253 开始就会使用SDS_TYPE_16 类型*/
     if (string_size < 1<<8) //不能超过 2 ** 8 = 256 位
         return SDS_TYPE_8;
     if (string_size < 1<<16)
@@ -191,6 +194,12 @@ sds sdsnewlen(const void *init, size_t initlen) {
             //指针指向sdshdr8起始地址
             SDS_HDR_VAR(8,s); //为了使得sh是SDS_TYPE_8类型的指针
             sh->len = initlen; //不包含\0
+
+            /*
+              这里redis8 和valkey都做了改动，
+              redis8 会尝试使用实际分配的空间大小，直到当前类型允许的最大大小
+              valkey则会
+            */
             sh->alloc = initlen;
             *fp = type;
             break;
@@ -465,6 +474,8 @@ sds sdsRemoveFreeSpace(sds s) {
  * 2.实际字符串的空间
  * 3.空闲缓存大小
  * 4.隐式的null字符
+ * 
+ * 哦 可能还和malloc真正分配的空间大小不一样
  * 
  */
 /* Return the total size of the allocation of the specifed sds string,

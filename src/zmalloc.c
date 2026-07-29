@@ -94,6 +94,7 @@ void zlibc_free(void *ptr) {
     pthread_mutex_unlock(&used_memory_mutex); \
 } while(0)
 
+/*sub 是substract*/
 #define update_zmalloc_stat_sub(__n) do { \
     pthread_mutex_lock(&used_memory_mutex); \
     used_memory -= (__n); \
@@ -104,6 +105,10 @@ void zlibc_free(void *ptr) {
 
 #define update_zmalloc_stat_alloc(__n) do { \
     size_t _n = (__n); \
+    /*
+        https://github.com/redis/redis/pull/7589/commits/cda3f4e9d3eeb9a7927a4140ade402cefb0382ce
+        去掉了
+    */
     if (_n&(sizeof(long)-1)) _n += sizeof(long)-(_n&(sizeof(long)-1)); \
     if (zmalloc_thread_safe) { \
         update_zmalloc_stat_add(_n); \
@@ -145,6 +150,8 @@ static void zmalloc_default_oom(size_t size) {
 static void (*zmalloc_oom_handler)(size_t) = zmalloc_default_oom;
 
 void *zmalloc(size_t size) {
+
+    //调用真正的分配器
     void *ptr = malloc(size+PREFIX_SIZE);
 
     if (!ptr) zmalloc_oom_handler(size);
@@ -152,7 +159,7 @@ void *zmalloc(size_t size) {
     update_zmalloc_stat_alloc(zmalloc_size(ptr));
     return ptr;
 #else
-    *((size_t*)ptr) = size; //记录分配的字节数
+    *((size_t*)ptr) = size; //哦 这里记录的是用户分配的字节数，实际分配的可能是对齐的字节数
     update_zmalloc_stat_alloc(size+PREFIX_SIZE);
     return (char*)ptr+PREFIX_SIZE; //指向真正的申请地址，移动PREFIX_SIZE
 #endif
@@ -209,12 +216,25 @@ void *zrealloc(void *ptr, size_t size) {
  * malloc itself, given that in that case we store a header with this
  * information as the first bytes of every allocation. */
 #ifndef HAVE_MALLOC_SIZE
+
+/*
+  有HAVE_MALLOC_SIZE的情况下，会使用分配器自带的函数返回分配的大小，
+  一般会大于等于请求的大小
+*/
 size_t zmalloc_size(void *ptr) {
     void *realptr = (char*)ptr-PREFIX_SIZE;
     size_t size = *((size_t*)realptr);
+
+
+    //假设至少所有分配的空间都会在底层分配器的处理下额外增加 sizeof(long) 的长度。
     /* Assume at least that all the allocations are padded at sizeof(long) by
      * the underlying allocator. */
-    if (size&(sizeof(long)-1)) size += sizeof(long)-(size&(sizeof(long)-1));
+
+
+    //是为了获得真正分配的空间吗
+    /*// 1. 计算偏移量，判断是否未对齐*/
+    /*其实有问题  /*https://github.com/redis/redis/pull/7963*/*/
+    if (size&(sizeof(long)-1)) size += sizeof(long)-(size&(sizeof(long)-1)); // 2. 未对齐：补齐到下一个 long 边界
     return size+PREFIX_SIZE;
 }
 #endif

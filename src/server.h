@@ -599,6 +599,24 @@ struct evictionPoolEntry {
 /* Redis database representation. There are multiple databases identified
  * by integers from 0 (the default database) up to the max configured
  * database. The database number is the 'id' field in the structure. */
+/*
+typedef struct serverDb {
+    kvstore *keys;                        
+    kvstore *expires;                    
+    kvstore *keys_with_volatile_items;    
+    dict *blocking_keys;                   
+    dict *blocking_keys_unblock_on_nokey;  
+                                           
+    dict *ready_keys;                     
+    dict *watched_keys;                    
+    int id;                               
+    struct {
+        long long avg_ttl;     
+        unsigned long cursor;  
+    } expiry[ACTIVE_EXPIRY_TYPE_COUNT];
+} serverDb;
+
+*/
 typedef struct redisDb {
     dict *dict;                 /* 数据库键空间 The keyspace for this DB */
     dict *expires;              /* 键的过期时间，字典的键为键，字典的值为过期时间 Timeout of keys with a timeout set */
@@ -630,6 +648,10 @@ typedef struct multiState {
     time_t minreplicas_timeout; /* 最小同步复制超时时间 MINREPLICAS timeout as unixtime. */
 } multiState;
 
+
+/*
+   为客户端保持阻塞操作的状态
+*/
 /* This structure holds the blocking operation state for a client.
  * The fields used depend on client->btype. */
 typedef struct blockingState {

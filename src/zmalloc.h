@@ -67,6 +67,13 @@ https://zhuanlan.zhihu.com/p/361117599?utm_id=0
 #define zmalloc_size(p) malloc_size(p)
 #endif
 
+
+/*
+  没有HAVE_MALLOC_SIZE ，那么zmalloc.c中定义了一个
+  zmalloc_size函数
+
+*/
+
 #ifndef ZMALLOC_LIB
 #define ZMALLOC_LIB "libc"
 #endif

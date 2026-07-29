@@ -68,13 +68,14 @@ int anetSetBlock(char *err, int fd, int non_block) {
     /* Set the socket blocking (if non_block is zero) or non-blocking.
      * Note that fcntl(2) for F_GETFL and F_SETFL can't be
      * interrupted by a signal. */
+    /*先获取下*/
     if ((flags = fcntl(fd, F_GETFL)) == -1) {
         anetSetError(err, "fcntl(F_GETFL): %s", strerror(errno));
         return ANET_ERR;
     }
 
     if (non_block)
-        flags |= O_NONBLOCK; 
+        flags |= O_NONBLOCK; //参数传非阻塞 就设置成非阻塞
     else
         flags &= ~O_NONBLOCK; //要把1改为0 所以要用与运算
 
@@ -135,6 +136,7 @@ int anetKeepAlive(char *err, int fd, int interval)
         return ANET_ERR;
     }
     //https://developer.aliyun.com/article/757742
+    //#ifdef 只要判断是否定义了__linux__宏即可，不需要定义值
 #ifdef __linux__
     /* Default settings are more or less garbage, with the keepalive time
      * set to 7200 by default on Linux. Modify settings to make the feature

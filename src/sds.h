@@ -39,7 +39,27 @@
 #include <stdarg.h> //stdarg.h 是 C 标准库中用于处理‌可变参数函数‌的核心头文件，提供了一套宏机制，允许开发者定义和操作参数数量不固定的函数
 #include <stdint.h> //stdint.h 是 C 语言标准库中用于定义‌固定宽度整数类型‌的头文件，旨在解决不同平台整数类型大小不一致的问题，提升代码可移植性
 
+
+//新版本 添加了
+/* Constness:
+    常量属性、常量性、只读特性（C/C++ 编程专属术语）
+ *
+ * - 'const sds' means 'char * const'. It is a const-pointer to non-const content.
+ *  const sds 意思： char * const ，它是const指针指向非const内容。const在*号右边
+ *  
+ * 
+ * - 'const_sds' means 'const char *'. It is a non-const pointer to const content.
+ *  const_sds 意思是const char * . 非常量指针 指向 常量内容。 const在*左边
+ * - 'const const_sds' means 'const char * const', const pointer and content.
+ * 
+ *    const const_sds 就是 const char * const ，常量指针 和常量内容。
+ *  */
 typedef char *sds;
+/*
+
+typedef const char *const_sds;
+
+*/
 
 
 /*
@@ -144,7 +164,10 @@ struct __attribute__ ((__packed__)) sdshdr64 {
     char buf[];
 };
 //https://github.com/redis/redis/pull/2509 这个pr优化了 sds size classes - memory optimization
-//而内存分配器 jemalloc/tcmalloc 等分配内存大小的单位（字节）都是 2、4、8、16、32、64 等等（这些数字叫做 bin），为了能容纳一个完整的 embstr 对象，jemalloc 最少会分配 32 字节的空间（16 < 19 < 32），这边的 19 是 redisObject 16 + sdshdr8 3 得出的。如果字符串再稍微长一点，那就是 64 字节的空间。如果总体超出了 64 字节，Redis 认为它是一个大字符串对象，不再使用 emdstr 编码存储，而会使用 raw 编码。
+//而内存分配器 jemalloc/tcmalloc 等分配内存大小的单位（字节）都是 2、4、8、16、32、64 等等（这些数字叫做 bin），
+// 为了能容纳一个完整的 embstr 对象，jemalloc 最少会分配 32 字节的空间（16 < 19 < 32），
+// 这边的 19 是 redisObject 16 + sdshdr8 3 得出的。
+//如果字符串再稍微长一点，那就是 64 字节的空间。如果总体超出了 64 字节，Redis 认为它是一个大字符串对象，不再使用 emdstr 编码存储，而会使用 raw 编码。
 //而之所以选择了 64 字节，应该是因为大部分情况下 CPU Cache Line 也是 64 字节，刚好 CPU 一次访问内存就可以读到数据（能够更好利用 CPU 缓存）
 
 //5种类型（长度1字节、2字节、4字节、8字节、小于1字节）的SDS至少要用3位来存储类型（2的3次方=8）,
@@ -157,15 +180,27 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 #define SDS_TYPE_64 4   //0100
 #define SDS_TYPE_MASK 7 //掩码  0111
 #define SDS_TYPE_BITS 3
+
+
+/*void* 指针直接赋给sdshdr 类型的指针*/
 #define SDS_HDR_VAR(T,s) struct sdshdr##T *sh = (void*)((s)-(sizeof(struct sdshdr##T)));
+
+/* 强制转换为sdshdr类型的指针 */
 #define SDS_HDR(T,s) ((struct sdshdr##T *)((s)-(sizeof(struct sdshdr##T))))
+
+/* 右移3位 */
 #define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS)
 
 /*
 整个 sds 可以根据 flags 的值来确认类型，再来直接进行指针偏移定位到 header，这里也可以看出为什么在 sds 中，内存上 header 头和 buf 字符数组是紧挨着的（并且是 packed 的）。因为字符数组才是字符串主体，紧挨着的话，可以很方便的根据 buf 向前偏移 1 位，从而获取到 flags，也就获取到类型。然后根据类型再往前偏移就可以获取到 header 头中的各个字段了，
 例如其中的 len 长度字段，就可以 0(1) 的时间复杂度直接获取到 sds 字符串长度
+
+//参数是const指针指向非const内容。const在*号右边
 */
 static inline size_t sdslen(const sds s) {
+
+    //valkey 直接封装成 switch (sdsType(s)) 来判断
+
     //内存是连续的 所以可以使用索引-1
     unsigned char flags = s[-1];
     /*位运算判断类型*/

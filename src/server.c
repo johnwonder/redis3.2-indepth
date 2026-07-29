@@ -2499,6 +2499,8 @@ void initServer(void) {
     //默认值为10000 + 128 = 10128
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
     //根据服务器配置的数据库数量分配数据库空间
+
+    //valkey 是直接用calloc 初始化 指针数组 ，让指针都是NULL
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     //port不为0的时候才会开始监听tcp连接
@@ -2634,8 +2636,10 @@ void initServer(void) {
     bioInit();
 }
 
-/* Populates the Redis Command Table starting from the hard coded list
- * we have on top of redis.c file. */
+/* 
+ 从redis.c文件顶部的硬编码列表开始填充Redis命令表
+ Populates the Redis Command Table starting from the hard coded list we have on top of redis.c file. 
+ */
 void populateCommandTable(void) {
     int j;
     //命令的数量
