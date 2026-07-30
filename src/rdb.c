@@ -1608,8 +1608,8 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
                 "Slave %s correctly received the streamed RDB file.",
                     replicationGetSlaveName(slave));
                 /* Restore the socket as non-blocking. */
-                anetNonBlock(NULL,slave->fd);
-                anetSendTimeout(NULL,slave->fd,0);
+                anetNonBlock(NULL,slave->fd); //非阻塞
+                anetSendTimeout(NULL,slave->fd,0); //禁用超时
             }
         }
     }
@@ -1675,6 +1675,8 @@ int rdbSaveToSlavesSockets(void) {
              * We'll restore it when the children returns (since duped socket
              * will share the O_NONBLOCK attribute with the parent). */
             anetBlock(NULL,slave->fd);
+
+            //没有管返回结果啥的
             anetSendTimeout(NULL,slave->fd,server.repl_timeout*1000);
         }
     }

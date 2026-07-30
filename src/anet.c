@@ -1,4 +1,5 @@
 /* anet.c -- Basic TCP socket stuff made a bit less boring
+             基础的 TCP 套接字功能，让事情变得不那么枯燥
  *
  * Copyright (c) 2006-2012, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
@@ -52,9 +53,20 @@ static void anetSetError(char *err, const char *fmt, ...)
 {
     va_list ap;
 
-    if (!err) return;
-    va_start(ap, fmt);
+    if (!err) return; //err为null的时候直接返回了
+    va_start(ap, fmt); //告诉编译器：固定参数到此为止，后面全是可变参数；
+    /*第一个参数 err：输出缓冲区，存放拼接后的完整字符串*/
+
+    /* ANET_ERR_LEN 缓冲区最大长度 256 ，防止越界溢出（安全关键） */
+    /* ap：打包好的全部可变参数 */
+
+    /*功能等价 snprintf(err, ANET_ERR_LEN, fmt, arg1, arg2, arg3...);*/
     vsnprintf(err, ANET_ERR_LEN, fmt, ap);
+
+    /*
+      销毁、清理 va_list ap 占用的栈资源，必须配对调用，否则存在内存 / 栈泄漏风险。
+      va_start 和 va_end 成对出现，缺一不可。
+    */
     va_end(ap);
 }
 
@@ -218,6 +230,9 @@ int anetTcpKeepAlive(char *err, int fd)
     return ANET_OK;
 }
 
+/*
+  设置socket发送超时为指定毫秒，或者设置参数ms为0禁用它
+*/
 /* Set the socket send timeout (SO_SNDTIMEO socket option) to the specified
  * number of milliseconds, or disable it if the 'ms' argument is zero. */
 int anetSendTimeout(char *err, int fd, long long ms) {
@@ -225,11 +240,30 @@ int anetSendTimeout(char *err, int fd, long long ms) {
 
     tv.tv_sec = ms/1000;
     tv.tv_usec = (ms%1000)*1000;
+    /*
+       int setsockopt(
+            int sockfd,        // 套接字
+            int level,         // SOL_SOCKET
+            int optname,       // 选项名
+            const void *optval,
+            socklen_t optlen
+        );
+    */
+    /*
+      setsockopt 函数在 sys/socket.h
+      SOL_SOCKET = 套接字通用层（值固定为 1）
+      作用：设置所有 TCP/UDP 套接字通用属性，不属于 TCP、IP 协议专属配置。
+
+        //SO_RCVTIMEO / SO_SNDTIMEO
+        阻塞 recv/send 超时时间，单位 timeval
+
+        非阻塞 socket（O_NONBLOCK）会直接忽略 SO_SNDTIMEO 配置，超时设置无效；
+    */
     if (setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) == -1) {
         anetSetError(err, "setsockopt SO_SNDTIMEO: %s", strerror(errno));
-        return ANET_ERR;
+        return ANET_ERR; //ERR 是返回 -1
     }
-    return ANET_OK;
+    return ANET_OK; //OK是返回0
 }
 
 /* anetGenericResolve() is called by anetResolve() and anetResolveIP() to
